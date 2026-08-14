@@ -15,4 +15,4 @@ COPY . .
 
 EXPOSE 5000 8080 4343
 
-CMD ["python", "dashboard.py"]
+CMD ["python", "start.py"]

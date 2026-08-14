@@ -94,7 +94,13 @@ BOT_TOKEN: str = strip_oauth_prefix(env_value("TWITCH_TOKEN"))
 BOT_REFRESH_TOKEN: str = env_value("TWITCH_REFRESH_TOKEN")
 BOT_NICK: str = env_value("TWITCH_NICK")
 CHANNEL: str = env_value("TWITCH_CHANNEL").lstrip("#")
-COMMAND_PREFIX: str = os.getenv("PREFIX", "?") or "?"
+COMMAND_PREFIXES: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        [part.strip() for part in (os.getenv("PREFIX") or "?").split(",") if part.strip()]
+        + ["?", "!"]
+    )
+)
+COMMAND_PREFIX: str = COMMAND_PREFIXES[0]
 TWITCH_BOT_ID: str = resolve_bot_id()
 
 bot: "CowBot | None" = None
@@ -117,13 +123,27 @@ def is_mod_or_broadcaster(ctx: commands.Context) -> bool:
     )
 
 
+class CowContext(commands.Context):
+    async def send(self, content: str, *, me: bool = False):
+        message = (f"/me {content}" if me else content).strip()
+        try:
+            return await self.channel.send_message(
+                sender=self.bot.bot_id,
+                message=message,
+                token_for=self.bot.bot_id,
+            )
+        except Exception as exc:
+            print(f"Failed to send chat reply: {exc}")
+            raise
+
+
 class CowBot(commands.Bot):
     def __init__(self):
         super().__init__(
             client_id=TWITCH_CLIENT_ID,
             client_secret=TWITCH_CLIENT_SECRET,
             bot_id=TWITCH_BOT_ID,
-            prefix=COMMAND_PREFIX,
+            prefix=COMMAND_PREFIXES,
             scopes=Scopes(
                 user_read_chat=True,
                 user_write_chat=True,
@@ -151,6 +171,9 @@ class CowBot(commands.Bot):
             raise RuntimeError(f"Could not find Twitch channel '{CHANNEL}'. Check TWITCH_CHANNEL in your .env file.")
         self.channel_user = users[0]
         await self._subscribe_to_chat()
+
+    def get_context(self, payload, *, cls=None):
+        return super().get_context(payload, cls=cls or CowContext)
 
     def api_status(self) -> dict:
         bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
@@ -190,13 +213,27 @@ class CowBot(commands.Bot):
 
     async def event_ready(self):
         bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
+        prefixes = " ".join(COMMAND_PREFIXES)
         print(f"Logged in as | {bot_name}")
         print(f"Connected to channel | {CHANNEL}")
+        print(f"Command prefixes | {prefixes}")
+        print("In stream chat type ?ping or !ping. The bot only replies while this process is running.")
+
+    async def event_message(self, payload) -> None:
+        chatter = getattr(payload.chatter, "name", None) or "unknown"
+        text = getattr(payload, "text", "") or ""
+        print(f"Chat | {chatter}: {text}")
+        chatter_id = str(getattr(payload.chatter, "id", "") or "")
+        if chatter_id and chatter_id == str(self.bot_id):
+            return
+        await self.process_commands(payload)
 
     async def event_command_error(self, payload: commands.CommandErrorPayload) -> None:
         error = payload.exception
         ctx = payload.context
         if isinstance(error, commands.CommandNotFound):
+            invoked = getattr(ctx, "invoked_with", None) or getattr(ctx, "_invoked_with", "unknown")
+            print(f"Unknown command | {invoked}")
             return
         if isinstance(error, commands.MissingRequiredArgument):
             command_name = getattr(ctx.command, "name", "command")

@@ -30,17 +30,18 @@ python dashboard.py
 
 ## Railway
 
-Railway does not run Compose files. Create **two services** from the same GitHub repo.
+Railway does not run Compose files. Create **two services** from the same GitHub repo. Both use `python start.py`; the process is chosen by `APP_ROLE` (or the Railway service name).
 
 ### 1. Bot service
 
 - Source: this repo
-- Config file: `railway.bot.toml` (set `RAILWAY_CONFIG_FILE=railway.bot.toml` if asked)
-- Start command: `python bot.py`
+- Rename the service to `bot`
 - Add a volume mounted at `/data`
+- Do not generate a public domain
 - Variables:
 
   ```text
+  APP_ROLE=bot
   TWITCH_CLIENT_ID
   TWITCH_CLIENT_SECRET
   TWITCH_BOT_ID
@@ -54,23 +55,21 @@ Railway does not run Compose files. Create **two services** from the same GitHub
   BOT_API_HOST=0.0.0.0
   ```
 
-Do not generate a public domain for the bot service. Other services reach it at `http://bot.railway.internal:$PORT`.
+Other services reach it at `http://bot.railway.internal:$PORT`.
 
 ### 2. Web service
 
 - Source: this repo
-- Uses `railway.toml`
-- Start command: `python dashboard.py`
+- Rename the service to `web`
 - Generate a public domain
 - Variables:
 
   ```text
+  APP_ROLE=web
   BOT_API_URL=http://${{bot.RAILWAY_PRIVATE_DOMAIN}}:${{bot.PORT}}
   API_SECRET=${{bot.API_SECRET}}
   FLASK_SECRET_KEY=a-long-random-string
   ```
-
-Rename the Railway services to `bot` and `web` so the private DNS matches, or change `BOT_API_URL` to your bot service name.
 
 ## Chat commands
 
