@@ -80,4 +80,4 @@ Rename the Railway services to `bot` and `web` so the private DNS matches, or ch
 - `?roulette <amount>`
 - `?giveaway start <name>` / `enter` / `end`
 - `?transfer <user> <amount>`
-- `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`
+- `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`, `?ping`

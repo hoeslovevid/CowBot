@@ -211,6 +211,10 @@ class CowBot(commands.Bot):
     async def uptime(self, ctx: commands.Context):
         await ctx.send(f"Bot uptime: {store.format_uptime(store.utc_now() - self.start_time)}.")
 
+    @commands.command(name="ping")
+    async def ping(self, ctx: commands.Context):
+        await ctx.send("Pong")
+
     @commands.command(name="points")
     async def points(self, ctx: commands.Context, *, target: str | None = None):
         target = store.normalize_user(target or get_author_name(ctx))
