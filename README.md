@@ -69,6 +69,6 @@ Prefixes are set in the dashboard. Defaults are `?` (and whatever you add, such 
 - `?daily`
 - `?gamble <amount|all>`
 - `?roulette <amount>`
-- `?giveaway start <name>` / `enter` / `end`
+- `?giveaway` to enter, `?giveaway start <name>` / `end` for mods
 - `?transfer <user> <amount>`
 - `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`, `?ping`

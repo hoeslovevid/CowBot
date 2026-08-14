@@ -111,6 +111,15 @@ def get_author_name(ctx: commands.Context) -> str:
     return getattr(author, "name", None) or getattr(author, "display_name", None) or "Unknown"
 
 
+def get_author_mention(ctx: commands.Context) -> str:
+    chatter = getattr(ctx, "chatter", None) or getattr(ctx, "author", None)
+    mention = getattr(chatter, "mention", None)
+    if mention:
+        return mention
+    name = get_author_name(ctx)
+    return f"@{name}" if name != "Unknown" else name
+
+
 def _badge_set_ids(source) -> set[str]:
     badges = getattr(source, "badges", None) or []
     ids: set[str] = set()
@@ -233,12 +242,9 @@ class CowCommands(commands.Component):
     @commands.command(name="giveaway")
     async def giveaway(self, ctx: commands.Context, action: str | None = None, *, name: str | None = None):
         if not action:
-            await ctx.send(
-                f"Giveaway commands: {store.primary_prefix()}giveaway start <name>, "
-                f"{store.primary_prefix()}giveaway enter, {store.primary_prefix()}giveaway end"
-            )
-            return
-        action = action.lower()
+            action = "enter"
+        else:
+            action = action.lower()
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
                 print(f"Giveaway start denied | {get_author_name(ctx)}")
@@ -251,13 +257,17 @@ class CowCommands(commands.Component):
             if not success:
                 await ctx.send(result or "Could not start giveaway.")
                 return
-            await ctx.send(f"Giveaway '{name}' started! Type {store.primary_prefix()}giveaway enter to join.")
+            await ctx.send(f"Giveaway '{name}' started! Type {store.primary_prefix()}giveaway to join.")
         elif action == "enter":
+            mention = get_author_mention(ctx)
             success, result = store.enter_giveaway(get_author_name(ctx))
             if not success:
-                await ctx.send(result or "Could not enter giveaway.")
+                if result and "already entered" in result:
+                    await ctx.reply(f"{mention} you are already entered in the giveaway.")
+                else:
+                    await ctx.reply(f"{mention} {result or 'Could not enter giveaway.'}")
                 return
-            await ctx.send(f"{result} entered the giveaway '{store.get_active_giveaway()}'.")
+            await ctx.reply(f"{mention} you entered the giveaway '{store.get_active_giveaway()}'.")
         elif action == "end":
             if not is_mod_or_broadcaster(ctx):
                 await ctx.send("Only mods and the broadcaster can end giveaways.")
@@ -269,8 +279,8 @@ class CowCommands(commands.Component):
                 await ctx.send(giveaway_name or "No giveaway is currently active.")
         else:
             await ctx.send(
-                f"Giveaway commands: {store.primary_prefix()}giveaway start <name>, "
-                f"{store.primary_prefix()}giveaway enter, {store.primary_prefix()}giveaway end"
+                f"Giveaway commands: {store.primary_prefix()}giveaway, "
+                f"{store.primary_prefix()}giveaway start <name>, {store.primary_prefix()}giveaway end"
             )
 
     @commands.command(name="quote")
@@ -487,6 +497,19 @@ class CowContext(commands.Context):
         except Exception as exc:
             print(f"Failed to send chat reply: {exc}")
             raise
+
+    async def reply(self, content: str, *, me: bool = False):
+        message = (f"/me {content}" if me else content).strip()
+        try:
+            return await self.channel.send_message(
+                sender=self.bot.bot_id,
+                message=message,
+                token_for=self.bot.bot_id,
+                reply_to_message_id=getattr(self._payload, "id", None),
+            )
+        except Exception as exc:
+            print(f"Failed to send chat reply: {exc}")
+            return await self.send(content, me=me)
 
 
 class CowBot(commands.Bot):

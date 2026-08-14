@@ -62,7 +62,7 @@
       <article class="stat">
         <span>Giveaway</span>
         <strong data-status="active_giveaway">{{ status.active_giveaway or 'Idle' }}</strong>
-        <em data-status="last_giveaway_winner">{% if status.last_giveaway_winner %}Last winner {{ status.last_giveaway_winner }}{% else %}No winner yet{% endif %}</em>
+        <em data-status="last_giveaway_winner">{% if status.active_giveaway %}{{ status.giveaway_entry_count }} entered{% elif status.last_giveaway_winner %}Last winner {{ status.last_giveaway_winner }}{% else %}No winner yet{% endif %}</em>
       </article>
       <article class="stat">
         <span>Poll</span>
@@ -188,15 +188,15 @@
       <section class="card">
         <div class="card-head">
           <h2>Giveaway</h2>
-          <p>Free entry, random winner in chat</p>
+          <p>Free entry, then spin the wheel for a winner</p>
         </div>
-        <form method="post" action="{{ url_for('manage_giveaway') }}" class="stack">
+        <form id="giveaway-form" method="post" action="{{ url_for('manage_giveaway') }}" class="stack">
           <label>Name
             <input name="giveaway_name" placeholder="keyboard-drop">
           </label>
           <div class="actions">
             <button type="submit" name="action" value="start" class="primary">Start giveaway</button>
-            <button type="submit" name="action" value="end" class="ghost">Pick winner</button>
+            <button type="submit" name="action" value="end" class="ghost" id="pick-giveaway-winner">Pick winner</button>
           </div>
         </form>
       </section>
@@ -248,6 +248,23 @@
           <button type="submit" name="action" value="create" class="primary">Add schedule</button>
         </form>
       </section>
+    </div>
+  </div>
+
+  <div id="giveaway-wheel" class="wheel-modal" hidden>
+    <div class="wheel-panel" role="dialog" aria-modal="true" aria-labelledby="wheel-title">
+      <p class="eyebrow">Giveaway</p>
+      <h2 id="wheel-title">Spinning for a winner</h2>
+      <div class="wheel-stage">
+        <div class="wheel-pointer" aria-hidden="true"></div>
+        <div class="wheel-disc">
+          <canvas id="giveaway-wheel-canvas" width="520" height="520"></canvas>
+        </div>
+        <div class="wheel-hub" aria-hidden="true"></div>
+      </div>
+      <p class="wheel-status">Entries are locked. The wheel picks one name.</p>
+      <p class="wheel-result" hidden></p>
+      <button type="button" class="primary" data-wheel-close hidden>Close</button>
     </div>
   </div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>

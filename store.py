@@ -419,6 +419,8 @@ def start_giveaway(name: str) -> tuple[bool, str | None]:
     if not giveaway_name or giveaway_name == "unknown":
         return False, "Giveaway name cannot be empty."
     with db_session() as conn:
+        if get_config_value(conn, "pending_giveaway_winner"):
+            return False, "A winner is being drawn right now."
         if get_config_value(conn, "active_giveaway"):
             return False, "A giveaway is already running."
         conn.execute("DELETE FROM giveaway_entries WHERE giveaway_name = ?", (giveaway_name,))
@@ -441,7 +443,65 @@ def enter_giveaway(user_name: str) -> tuple[bool, str | None]:
     return True, author_name
 
 
+def get_giveaway_entries(giveaway_name: str | None = None) -> list[str]:
+    name = giveaway_name or get_active_giveaway() or get_setting("pending_giveaway_name", "")
+    if not name:
+        return []
+    with db_session() as conn:
+        rows = conn.execute(
+            "SELECT user FROM giveaway_entries WHERE giveaway_name = ? ORDER BY user",
+            (name,),
+        ).fetchall()
+    return [row["user"] for row in rows]
+
+
+def get_pending_giveaway() -> tuple[str | None, str | None]:
+    winner = get_setting("pending_giveaway_winner", "")
+    name = get_setting("pending_giveaway_name", "")
+    if winner and name:
+        return winner, name
+    return None, None
+
+
+def draw_giveaway() -> tuple[str | None, str | None, list[str]]:
+    pending_winner, pending_name = get_pending_giveaway()
+    if pending_winner and pending_name:
+        return pending_winner, pending_name, get_giveaway_entries(pending_name)
+
+    with db_session() as conn:
+        giveaway_name = get_config_value(conn, "active_giveaway")
+        if not giveaway_name:
+            return None, "No giveaway is currently active.", []
+        rows = conn.execute(
+            "SELECT user FROM giveaway_entries WHERE giveaway_name = ?",
+            (giveaway_name,),
+        ).fetchall()
+        if not rows:
+            return None, f"No entries for giveaway '{giveaway_name}'.", []
+        winner = random.choice(rows)["user"]
+        entries = [row["user"] for row in rows]
+        upsert_config(conn, "active_giveaway", "")
+        upsert_config(conn, "pending_giveaway_winner", winner)
+        upsert_config(conn, "pending_giveaway_name", giveaway_name)
+    return winner, giveaway_name, entries
+
+
+def complete_giveaway_draw() -> tuple[str | None, str | None]:
+    with db_session() as conn:
+        winner = get_config_value(conn, "pending_giveaway_winner")
+        name = get_config_value(conn, "pending_giveaway_name")
+        if not winner or not name:
+            return None, "No giveaway draw is waiting to finish."
+        upsert_config(conn, "last_giveaway_winner", winner)
+        upsert_config(conn, "pending_giveaway_winner", "")
+        upsert_config(conn, "pending_giveaway_name", "")
+    return winner, name
+
+
 def finish_giveaway() -> tuple[str | None, str | None]:
+    pending_winner, pending_name = get_pending_giveaway()
+    if pending_winner and pending_name:
+        return complete_giveaway_draw()
     with db_session() as conn:
         giveaway_name = get_config_value(conn, "active_giveaway")
         if not giveaway_name:
@@ -705,6 +765,7 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
         "active_raffle": raffle_name,
         "raffle_cost": get_raffle_cost(raffle_name) if raffle_name else None,
         "active_giveaway": get_active_giveaway(),
+        "giveaway_entry_count": len(get_giveaway_entries()),
         "last_giveaway_winner": get_last_giveaway_winner(),
         "leaderboard": [
             {"user": row["user"], "points": row["points"]}

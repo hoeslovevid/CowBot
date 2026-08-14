@@ -3,7 +3,7 @@ import os
 
 import requests
 from dotenv import find_dotenv, load_dotenv
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
 env_path = find_dotenv()
 if env_path:
@@ -31,6 +31,7 @@ EMPTY_STATUS = {
     "active_raffle": None,
     "raffle_cost": None,
     "active_giveaway": None,
+    "giveaway_entry_count": 0,
     "last_giveaway_winner": None,
     "leaderboard": [],
     "settings": {
@@ -73,7 +74,7 @@ def fetch_status() -> dict:
         return status
 
 
-def post_bot(path: str, payload: dict) -> tuple[bool, str | None]:
+def post_bot_data(path: str, payload: dict) -> tuple[bool, dict]:
     try:
         response = requests.post(
             f"{BOT_API_URL}{path}",
@@ -81,16 +82,23 @@ def post_bot(path: str, payload: dict) -> tuple[bool, str | None]:
             headers=bot_headers(),
             timeout=8,
         )
-        data = {}
         try:
             data = response.json()
         except ValueError:
             data = {}
         if response.ok and data.get("ok", True):
-            return True, None
-        return False, data.get("error") or f"Bot API returned {response.status_code}"
+            return True, data if isinstance(data, dict) else {"ok": True}
+        error = data.get("error") if isinstance(data, dict) else None
+        return False, {"ok": False, "error": error or f"Bot API returned {response.status_code}"}
     except requests.RequestException as exc:
-        return False, f"Could not reach bot API: {exc}"
+        return False, {"ok": False, "error": f"Could not reach bot API: {exc}"}
+
+
+def post_bot(path: str, payload: dict) -> tuple[bool, str | None]:
+    success, data = post_bot_data(path, payload)
+    if success:
+        return True, None
+    return False, data.get("error")
 
 
 @app.route("/health", methods=["GET", "HEAD"])
@@ -167,6 +175,18 @@ def manage_giveaway():
         success, error = post_bot("/api/giveaway", {"action": "end"})
         flash(error or "Giveaway ended and winner posted to chat.", "error" if error else "success")
     return redirect(url_for("dashboard"))
+
+
+@app.route("/giveaway/draw", methods=["POST"])
+def draw_giveaway():
+    success, data = post_bot_data("/api/giveaway", {"action": "draw"})
+    return jsonify(data), 200 if success else 400
+
+
+@app.route("/giveaway/complete", methods=["POST"])
+def complete_giveaway():
+    success, data = post_bot_data("/api/giveaway", {"action": "complete"})
+    return jsonify(data), 200 if success else 400
 
 
 @app.route("/quote", methods=["POST"])

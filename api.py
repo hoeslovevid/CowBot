@@ -115,8 +115,24 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             success, result = store.start_giveaway(name)
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
-            await announce(f"Giveaway '{result}' started! Type {store.primary_prefix()}giveaway enter to join.")
+            await announce(f"Giveaway '{result}' started! Type {store.primary_prefix()}giveaway to join.")
             return web.json_response({"ok": True, "name": result})
+        if action == "draw":
+            winner, giveaway_name, entries = store.draw_giveaway()
+            if winner and giveaway_name:
+                return web.json_response({
+                    "ok": True,
+                    "winner": winner,
+                    "name": giveaway_name,
+                    "entries": entries,
+                })
+            return web.json_response({"ok": False, "error": giveaway_name or "No giveaway is currently active."}, status=400)
+        if action == "complete":
+            winner, giveaway_name = store.complete_giveaway_draw()
+            if winner and giveaway_name:
+                await announce(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
+                return web.json_response({"ok": True, "winner": winner, "name": giveaway_name})
+            return web.json_response({"ok": False, "error": giveaway_name or "No giveaway draw is waiting to finish."}, status=400)
         if action == "end":
             winner, giveaway_name = store.finish_giveaway()
             if winner and giveaway_name:
