@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+.venv-1/
+.vscode/
+bot.db
+.env
+.tio.tokens.json
