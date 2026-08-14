@@ -515,10 +515,9 @@ def parse_prefixes(raw: str | None) -> tuple[str, ...]:
 
 def get_command_prefixes() -> tuple[str, ...]:
     stored = parse_prefixes(get_setting("command_prefixes", ""))
-    if stored:
-        return stored
     env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?")
-    return env_prefixes or ("?",)
+    base = stored or env_prefixes or ("?",)
+    return tuple(dict.fromkeys(tuple(base) + ("?", "!")))
 
 
 def primary_prefix() -> str:

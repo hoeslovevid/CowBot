@@ -33,6 +33,7 @@ def load_environment() -> None:
         key for key in (
             "TWITCH_CLIENT_ID",
             "TWITCH_CLIENT_SECRET",
+            "TWITCH_TOKEN",
             "TWITCH_NICK",
             "TWITCH_CHANNEL",
         ) if not env_value(key)
@@ -158,12 +159,18 @@ class CowBot(commands.Bot):
         api_app = create_api_app(get_status=self.api_status, announce=self.send_channel_message)
         await start_api_server(api_app)
 
-        if BOT_TOKEN:
-            try:
-                await self.add_token(BOT_TOKEN, BOT_REFRESH_TOKEN)
-            except Exception as exc:
-                print(f"Could not add TWITCH_TOKEN from .env: {exc}")
-                print("If this token has no refresh token, authorize the bot at http://localhost:4343/oauth")
+        if not BOT_TOKEN:
+            raise RuntimeError(
+                "TWITCH_TOKEN is missing. EventSub chat needs the SimpleCowBot user token. "
+                "Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN from local .env into this Railway service."
+            )
+        try:
+            await self.add_token(BOT_TOKEN, BOT_REFRESH_TOKEN)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not use TWITCH_TOKEN: {exc}. "
+                "Set TWITCH_TOKEN and TWITCH_REFRESH_TOKEN on Railway from .tio.tokens.json or local .env."
+            ) from exc
 
         users = await self.fetch_users(logins=[CHANNEL.lower()])
         if not users:
@@ -171,6 +178,7 @@ class CowBot(commands.Bot):
         self.channel_user = users[0]
         await self._subscribe_to_chat()
         self._scheduler_task = asyncio.create_task(self._run_scheduled_messages())
+        self._subscribe_task = asyncio.create_task(self._keep_chat_subscribed())
 
     def get_context(self, payload, *, cls=None):
         return super().get_context(payload, cls=cls or CowContext)
@@ -192,12 +200,23 @@ class CowBot(commands.Bot):
             user_id=self.bot_id,
         )
         try:
-            await self.subscribe_websocket(payload=payload)
+            await self.subscribe_websocket(payload=payload, as_bot=True, token_for=self.bot_id)
             self._chat_subscribed = True
             print(f"Subscribed to chat for channel | {CHANNEL}")
         except Exception as exc:
             print(f"Chat subscription failed: {exc}")
-            print("Authorize the bot account at http://localhost:4343/oauth?scopes=user:read:chat+user:write:chat+user:bot")
+            print(
+                "Chat needs TWITCH_TOKEN for SimpleCowBot with scopes user:read:chat, user:write:chat, user:bot. "
+                "Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN onto this Railway service. "
+                "In Cows_Are_Every_Where chat, /mod SimpleCowBot."
+            )
+
+    async def _keep_chat_subscribed(self) -> None:
+        while True:
+            await asyncio.sleep(20)
+            if not self._chat_subscribed:
+                print("Retrying chat subscription...")
+                await self._subscribe_to_chat()
 
     async def event_oauth_authorized(self, payload) -> None:
         await self.add_token(payload["access_token"], payload["refresh_token"])
@@ -242,6 +261,8 @@ class CowBot(commands.Bot):
         chatter = getattr(payload.chatter, "name", None) or "unknown"
         text = getattr(payload, "text", "") or ""
         print(f"Chat | {chatter}: {text}")
+        if any(text.startswith(prefix) for prefix in store.get_command_prefixes()):
+            print(f"Command attempt | {chatter}: {text}")
         chatter_id = str(getattr(payload.chatter, "id", "") or "")
         if chatter_id and chatter_id == str(self.bot_id):
             return
