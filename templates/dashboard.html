@@ -197,6 +197,7 @@
           <div class="actions">
             <button type="submit" name="action" value="start" class="primary">Start giveaway</button>
             <button type="submit" name="action" value="end" class="ghost" id="pick-giveaway-winner">Pick winner</button>
+            <button type="button" class="ghost" id="reroll-giveaway">Reroll</button>
           </div>
         </form>
       </section>
@@ -264,7 +265,10 @@
       </div>
       <p class="wheel-status">Entries are locked. The wheel picks one name.</p>
       <p class="wheel-result" hidden></p>
-      <button type="button" class="primary" data-wheel-close hidden>Close</button>
+      <div class="actions wheel-actions">
+        <button type="button" class="ghost" data-wheel-reroll hidden>Reroll</button>
+        <button type="button" class="primary" data-wheel-close hidden>Close</button>
+      </div>
     </div>
   </div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>

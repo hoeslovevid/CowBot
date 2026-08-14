@@ -277,10 +277,24 @@ class CowCommands(commands.Component):
                 await ctx.send(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
             else:
                 await ctx.send(giveaway_name or "No giveaway is currently active.")
+        elif action == "reroll":
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can reroll giveaways.")
+                return
+            winner, giveaway_name, _entries = store.reroll_giveaway()
+            if not winner or not giveaway_name:
+                await ctx.send(giveaway_name or "There is no giveaway to reroll.")
+                return
+            winner, giveaway_name, _is_reroll = store.complete_giveaway_draw()
+            if winner and giveaway_name:
+                await ctx.send(f"Giveaway '{giveaway_name}' was rerolled! The new winner is {winner}.")
+            else:
+                await ctx.send(giveaway_name or "Could not reroll the giveaway.")
         else:
             await ctx.send(
                 f"Giveaway commands: {store.primary_prefix()}giveaway, "
-                f"{store.primary_prefix()}giveaway start <name>, {store.primary_prefix()}giveaway end"
+                f"{store.primary_prefix()}giveaway start <name>, "
+                f"{store.primary_prefix()}giveaway end, {store.primary_prefix()}giveaway reroll"
             )
 
     @commands.command(name="quote")

@@ -128,11 +128,25 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
                 })
             return web.json_response({"ok": False, "error": giveaway_name or "No giveaway is currently active."}, status=400)
         if action == "complete":
-            winner, giveaway_name = store.complete_giveaway_draw()
+            winner, giveaway_name, is_reroll = store.complete_giveaway_draw()
             if winner and giveaway_name:
-                await announce(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
-                return web.json_response({"ok": True, "winner": winner, "name": giveaway_name})
+                if is_reroll:
+                    await announce(f"Giveaway '{giveaway_name}' was rerolled! The new winner is {winner}.")
+                else:
+                    await announce(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
+                return web.json_response({"ok": True, "winner": winner, "name": giveaway_name, "reroll": is_reroll})
             return web.json_response({"ok": False, "error": giveaway_name or "No giveaway draw is waiting to finish."}, status=400)
+        if action == "reroll":
+            winner, giveaway_name, entries = store.reroll_giveaway()
+            if winner and giveaway_name:
+                return web.json_response({
+                    "ok": True,
+                    "winner": winner,
+                    "name": giveaway_name,
+                    "entries": entries,
+                    "reroll": True,
+                })
+            return web.json_response({"ok": False, "error": giveaway_name or "There is no giveaway to reroll."}, status=400)
         if action == "end":
             winner, giveaway_name = store.finish_giveaway()
             if winner and giveaway_name:

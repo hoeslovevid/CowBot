@@ -425,6 +425,8 @@ def start_giveaway(name: str) -> tuple[bool, str | None]:
             return False, "A giveaway is already running."
         conn.execute("DELETE FROM giveaway_entries WHERE giveaway_name = ?", (giveaway_name,))
         upsert_config(conn, "active_giveaway", giveaway_name)
+        upsert_config(conn, "giveaway_excluded_winners", "")
+        upsert_config(conn, "pending_giveaway_reroll", "")
     return True, giveaway_name
 
 
@@ -444,7 +446,12 @@ def enter_giveaway(user_name: str) -> tuple[bool, str | None]:
 
 
 def get_giveaway_entries(giveaway_name: str | None = None) -> list[str]:
-    name = giveaway_name or get_active_giveaway() or get_setting("pending_giveaway_name", "")
+    name = (
+        giveaway_name
+        or get_active_giveaway()
+        or get_setting("pending_giveaway_name", "")
+        or get_last_giveaway_name()
+    )
     if not name:
         return []
     with db_session() as conn:
@@ -461,6 +468,27 @@ def get_pending_giveaway() -> tuple[str | None, str | None]:
     if winner and name:
         return winner, name
     return None, None
+
+
+def get_last_giveaway_name() -> str | None:
+    value = get_setting("last_giveaway_name", "")
+    return value or None
+
+
+def _excluded_winners(conn: sqlite3.Connection, extra: str | None = None) -> set[str]:
+    names = {normalize_user(part) for part in get_config_value(conn, "giveaway_excluded_winners").split(",") if part.strip()}
+    if extra:
+        names.add(normalize_user(extra))
+    names.discard("")
+    names.discard("unknown")
+    return names
+
+
+def _record_giveaway_winner(conn: sqlite3.Connection, name: str, winner: str) -> None:
+    upsert_config(conn, "last_giveaway_winner", winner)
+    upsert_config(conn, "last_giveaway_name", name)
+    excluded = _excluded_winners(conn, winner)
+    upsert_config(conn, "giveaway_excluded_winners", ",".join(sorted(excluded)))
 
 
 def draw_giveaway() -> tuple[str | None, str | None, list[str]]:
@@ -483,25 +511,59 @@ def draw_giveaway() -> tuple[str | None, str | None, list[str]]:
         upsert_config(conn, "active_giveaway", "")
         upsert_config(conn, "pending_giveaway_winner", winner)
         upsert_config(conn, "pending_giveaway_name", giveaway_name)
+        upsert_config(conn, "pending_giveaway_reroll", "")
+        upsert_config(conn, "last_giveaway_name", giveaway_name)
     return winner, giveaway_name, entries
 
 
-def complete_giveaway_draw() -> tuple[str | None, str | None]:
+def reroll_giveaway() -> tuple[str | None, str | None, list[str]]:
+    with db_session() as conn:
+        pending_winner = get_config_value(conn, "pending_giveaway_winner")
+        if get_config_value(conn, "active_giveaway") and not pending_winner:
+            return None, "Pick a winner first, then you can reroll.", []
+        giveaway_name = (
+            get_config_value(conn, "pending_giveaway_name")
+            or get_config_value(conn, "last_giveaway_name")
+        )
+        if not giveaway_name:
+            return None, "There is no giveaway to reroll.", []
+        rows = conn.execute(
+            "SELECT user FROM giveaway_entries WHERE giveaway_name = ?",
+            (giveaway_name,),
+        ).fetchall()
+        entries = [row["user"] for row in rows]
+        excluded = _excluded_winners(conn, pending_winner or get_config_value(conn, "last_giveaway_winner"))
+        remaining = [user for user in entries if normalize_user(user) not in excluded]
+        if not remaining:
+            return None, "No other entries left to reroll.", entries
+        winner = random.choice(remaining)
+        upsert_config(conn, "active_giveaway", "")
+        upsert_config(conn, "pending_giveaway_winner", winner)
+        upsert_config(conn, "pending_giveaway_name", giveaway_name)
+        upsert_config(conn, "pending_giveaway_reroll", "1")
+        upsert_config(conn, "last_giveaway_name", giveaway_name)
+    return winner, giveaway_name, remaining
+
+
+def complete_giveaway_draw() -> tuple[str | None, str | None, bool]:
     with db_session() as conn:
         winner = get_config_value(conn, "pending_giveaway_winner")
         name = get_config_value(conn, "pending_giveaway_name")
+        is_reroll = get_config_value(conn, "pending_giveaway_reroll") == "1"
         if not winner or not name:
-            return None, "No giveaway draw is waiting to finish."
-        upsert_config(conn, "last_giveaway_winner", winner)
+            return None, "No giveaway draw is waiting to finish.", False
+        _record_giveaway_winner(conn, name, winner)
         upsert_config(conn, "pending_giveaway_winner", "")
         upsert_config(conn, "pending_giveaway_name", "")
-    return winner, name
+        upsert_config(conn, "pending_giveaway_reroll", "")
+    return winner, name, is_reroll
 
 
 def finish_giveaway() -> tuple[str | None, str | None]:
     pending_winner, pending_name = get_pending_giveaway()
     if pending_winner and pending_name:
-        return complete_giveaway_draw()
+        winner, name, _is_reroll = complete_giveaway_draw()
+        return winner, name
     with db_session() as conn:
         giveaway_name = get_config_value(conn, "active_giveaway")
         if not giveaway_name:
@@ -514,7 +576,7 @@ def finish_giveaway() -> tuple[str | None, str | None]:
         if not rows:
             return None, f"No entries for giveaway '{giveaway_name}'."
         winner = random.choice(rows)["user"]
-        upsert_config(conn, "last_giveaway_winner", winner)
+        _record_giveaway_winner(conn, giveaway_name, winner)
         return winner, giveaway_name
 
 

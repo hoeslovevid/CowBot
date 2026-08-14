@@ -189,6 +189,12 @@ def complete_giveaway():
     return jsonify(data), 200 if success else 400
 
 
+@app.route("/giveaway/reroll", methods=["POST"])
+def reroll_giveaway():
+    success, data = post_bot_data("/api/giveaway", {"action": "reroll"})
+    return jsonify(data), 200 if success else 400
+
+
 @app.route("/quote", methods=["POST"])
 def manage_quote():
     success, error = post_bot("/api/quote", {

@@ -466,4 +466,7 @@ code {
 
 .wheel-panel .primary { width: auto; min-width: 160px; }
 
+.wheel-actions { justify-content: center; }
+.wheel-actions button { min-width: 140px; }
+
 .wheel-panel.revealed .wheel-result { color: var(--butter); }
