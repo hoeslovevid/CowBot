@@ -1,6 +1,6 @@
 # CowBot
 
-Twitch chat bot for points, giveaways, polls, raffles, and quotes, plus a web control room. The website and bot run as two services and talk over an internal HTTP API.
+Twitch chat bot for points, giveaways, polls, raffles, and quotes, plus a web control room. Chat and the dashboard can run in one process; the site talks to the bot over a local HTTP API.
 
 ## Local Docker
 
@@ -26,22 +26,24 @@ python bot.py
 python dashboard.py
 ```
 
+Or run both together:
+
+```bash
+python start.py
+```
+
 `dashboard.py` expects `BOT_API_URL=http://127.0.0.1:8080`.
 
 ## Railway
 
-Railway does not run Compose files. Create **two services** from the same GitHub repo. Both use `python start.py`; the process is chosen by `APP_ROLE` (or the Railway service name).
+Use **one service** from this GitHub repo. `python start.py` runs the Twitch bot and the dashboard together.
 
-### 1. Bot service
-
-- Source: this repo
-- Rename the service to `bot`
+- Generate a public domain (this is the dashboard)
 - Add a volume mounted at `/data`
-- Do not generate a public domain
 - Variables:
 
   ```text
-  APP_ROLE=bot
+  APP_ROLE=all
   TWITCH_CLIENT_ID
   TWITCH_CLIENT_SECRET
   TWITCH_BOT_ID
@@ -51,25 +53,16 @@ Railway does not run Compose files. Create **two services** from the same GitHub
   TWITCH_CHANNEL
   PREFIX=?
   API_SECRET
+  FLASK_SECRET_KEY
   DB_PATH=/data/bot.db
-  BOT_API_HOST=0.0.0.0
+  BOT_API_HOST=127.0.0.1
+  BOT_API_PORT=8080
+  BOT_API_URL=http://127.0.0.1:8080
   ```
 
-Other services reach it at `http://bot.railway.internal:$PORT`.
+The public `PORT` serves the dashboard. The bot API stays on `127.0.0.1:8080` inside the same container.
 
-### 2. Web service
-
-- Source: this repo
-- Rename the service to `web`
-- Generate a public domain
-- Variables:
-
-  ```text
-  APP_ROLE=web
-  BOT_API_URL=http://${{bot.RAILWAY_PRIVATE_DOMAIN}}:${{bot.PORT}}
-  API_SECRET=${{bot.API_SECRET}}
-  FLASK_SECRET_KEY=a-long-random-string
-  ```
+If you still have a second Railway service from the old split setup, you can delete it after this service is healthy.
 
 ## Chat commands
 
