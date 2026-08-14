@@ -43,18 +43,22 @@ EMPTY_STATUS = {
 
 
 def bot_headers() -> dict[str, str]:
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "X-CowBot-Proxy": "1"}
     if API_SECRET:
         headers["X-API-Secret"] = API_SECRET
     return headers
 
 
 def fetch_status() -> dict:
+    if request.headers.get("X-CowBot-Proxy"):
+        status = dict(EMPTY_STATUS)
+        status["bot_reachable"] = False
+        return status
     try:
         response = requests.get(
             f"{BOT_API_URL}/api/status",
             headers=bot_headers(),
-            timeout=5,
+            timeout=3,
         )
         response.raise_for_status()
         payload = response.json()
@@ -172,4 +176,7 @@ def manage_quote():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+    from waitress import serve
+
+    print(f"Dashboard listening on 0.0.0.0:{PORT}")
+    serve(app, host="0.0.0.0", port=PORT, threads=8, channel_timeout=20, ident="cowbot")

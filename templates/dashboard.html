@@ -6,28 +6,38 @@
   <title>CowBot Control</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
+  <div class="spots" aria-hidden="true"></div>
   <div class="shell">
     <header class="topbar">
       <div class="brand">
         <div class="mark" aria-hidden="true">
-          <span></span><span></span>
+          <svg viewBox="0 0 64 64" fill="none">
+            <rect width="64" height="64" rx="20" fill="#F4E7C3"/>
+            <circle cx="22" cy="18" r="8" fill="#1A1714"/>
+            <circle cx="42" cy="18" r="8" fill="#1A1714"/>
+            <ellipse cx="32" cy="38" rx="18" ry="16" fill="#FFF8E8"/>
+            <ellipse cx="32" cy="42" rx="10" ry="8" fill="#F0D3A8"/>
+            <circle cx="24" cy="34" r="3" fill="#1A1714"/>
+            <circle cx="40" cy="34" r="3" fill="#1A1714"/>
+            <ellipse cx="32" cy="44" rx="4" ry="2.5" fill="#1A1714"/>
+          </svg>
         </div>
         <div>
-          <p class="eyebrow">Control room</p>
+          <p class="eyebrow">Pasture control</p>
           <h1>CowBot</h1>
         </div>
       </div>
       <div class="top-meta">
         <div class="pill {% if status.bot_reachable and status.connected %}live{% else %}down{% endif %}">
           <i></i>
-          {% if status.bot_reachable and status.connected %}Live{% elif status.bot_reachable %}Connecting{% else %}Bot offline{% endif %}
+          {% if status.bot_reachable and status.connected %}Live on stream{% elif status.bot_reachable %}Connecting{% else %}Bot offline{% endif %}
         </div>
         <div class="channel">
-          <span>Channel</span>
+          <span>Broadcasting to</span>
           <strong>#{{ status.channel }}</strong>
         </div>
       </div>
@@ -67,20 +77,20 @@
     </section>
 
     <div class="layout">
-      <section class="card">
+      <section class="card featured">
         <div class="card-head">
-          <h2>Leaderboard</h2>
+          <h2>Herd leaderboard</h2>
           <p>Top chatters by points</p>
         </div>
         <ol class="board" data-status="leaderboard">
           {% for row in status.leaderboard %}
-            <li>
+            <li class="place-{{ loop.index if loop.index <= 3 else 'rest' }}">
               <span class="rank">{{ loop.index }}</span>
               <span class="user">{{ row.user }}</span>
               <span class="points">{{ row.points }}</span>
             </li>
           {% else %}
-            <li class="empty">No points recorded yet. Chat activity will fill this list.</li>
+            <li class="empty">The pasture is quiet. Points will show up after chat starts playing.</li>
           {% endfor %}
         </ol>
       </section>
@@ -88,7 +98,7 @@
       <section class="card">
         <div class="card-head">
           <h2>Economy</h2>
-          <p>Rewards and raffle defaults</p>
+          <p>Daily rewards and raffle defaults</p>
         </div>
         <form method="post" action="{{ url_for('update_settings') }}" class="form-grid">
           <label>Daily min
@@ -107,30 +117,42 @@
         </form>
       </section>
 
-      <section class="card">
+      <section class="card wide">
         <div class="card-head">
           <h2>Poll</h2>
-          <p>Posted to Twitch chat through the bot</p>
+          <p>Posted straight into Twitch chat</p>
         </div>
         <div class="live-box" data-status="poll_results">
           {% if status.active_poll %}
             <p class="live-title">{{ status.poll_question }}</p>
+            {% set ns = namespace(max_votes=1) %}
+            {% for row in status.poll_results %}
+              {% if row.votes > ns.max_votes %}{% set ns.max_votes = row.votes %}{% endif %}
+            {% endfor %}
             <ul>
               {% for row in status.poll_results %}
-                <li><span>{{ row.option }}</span><b>{{ row.votes }}</b></li>
+                <li>
+                  <div class="option-row">
+                    <span>{{ row.option }}</span>
+                    <b>{{ row.votes }}</b>
+                  </div>
+                  <div class="bar"><i style="width: {{ ((row.votes / ns.max_votes) * 100) | round }}%"></i></div>
+                </li>
               {% endfor %}
             </ul>
           {% else %}
-            <p class="muted">No poll running.</p>
+            <p class="muted">No poll running. Start one and votes will stack here.</p>
           {% endif %}
         </div>
         <form method="post" action="{{ url_for('manage_poll') }}" class="stack">
-          <label>Name
-            <input name="poll_name" placeholder="stream-poll">
-          </label>
-          <label>Question
-            <input name="poll_question" placeholder="What game next?">
-          </label>
+          <div class="form-grid">
+            <label>Name
+              <input name="poll_name" placeholder="stream-poll">
+            </label>
+            <label>Question
+              <input name="poll_question" placeholder="What game next?">
+            </label>
+          </div>
           <label>Options
             <input name="poll_options" placeholder="Minecraft, Valorant, Just Chatting">
           </label>
@@ -179,7 +201,7 @@
       <section class="card">
         <div class="card-head">
           <h2>Quotes</h2>
-          <p>Saved to the bot and usable with !quote</p>
+          <p>Saved for <code>!quote</code> in chat</p>
         </div>
         <form method="post" action="{{ url_for('manage_quote') }}" class="stack">
           <label>Quote
