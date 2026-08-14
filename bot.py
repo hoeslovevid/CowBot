@@ -123,185 +123,13 @@ def is_mod_or_broadcaster(ctx: commands.Context) -> bool:
     )
 
 
-class CowContext(commands.Context):
-    async def send(self, content: str, *, me: bool = False):
-        message = (f"/me {content}" if me else content).strip()
-        try:
-            return await self.channel.send_message(
-                sender=self.bot.bot_id,
-                message=message,
-                token_for=self.bot.bot_id,
-            )
-        except Exception as exc:
-            print(f"Failed to send chat reply: {exc}")
-            raise
-
-
-class CowBot(commands.Bot):
-    def __init__(self):
-        super().__init__(
-            client_id=TWITCH_CLIENT_ID,
-            client_secret=TWITCH_CLIENT_SECRET,
-            bot_id=TWITCH_BOT_ID,
-            prefix=prefixes_for_message,
-            scopes=Scopes(
-                user_read_chat=True,
-                user_write_chat=True,
-                user_bot=True,
-            ),
-        )
-        self.start_time = store.utc_now()
-        self.channel_user = None
-        self._chat_subscribed = False
-        self._register_class_commands()
-
-    def _register_class_commands(self) -> None:
-        seen: set[int] = set()
-        for cls in reversed(type(self).__mro__):
-            for member in cls.__dict__.values():
-                if not isinstance(member, commands.Command) or getattr(member, "parent", None):
-                    continue
-                if id(member) in seen:
-                    continue
-                seen.add(id(member))
-                member._injected = self
-                self.add_command(member)
-        names = ", ".join(sorted({cmd.name for cmd in self.unique_commands}))
-        print(f"Loaded commands | {names}")
-
-    async def setup_hook(self) -> None:
-        store.init_db()
-        api_app = create_api_app(get_status=self.api_status, announce=self.send_channel_message)
-        await start_api_server(api_app)
-
-        if not BOT_TOKEN:
-            raise RuntimeError(
-                "TWITCH_TOKEN is missing. EventSub chat needs the SimpleCowBot user token. "
-                "Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN from local .env into this Railway service."
-            )
-        try:
-            await self.add_token(BOT_TOKEN, BOT_REFRESH_TOKEN)
-        except Exception as exc:
-            raise RuntimeError(
-                f"Could not use TWITCH_TOKEN: {exc}. "
-                "Set TWITCH_TOKEN and TWITCH_REFRESH_TOKEN on Railway from .tio.tokens.json or local .env."
-            ) from exc
-
-        users = await self.fetch_users(logins=[CHANNEL.lower()])
-        if not users:
-            raise RuntimeError(f"Could not find Twitch channel '{CHANNEL}'. Check TWITCH_CHANNEL in your .env file.")
-        self.channel_user = users[0]
-        await self._subscribe_to_chat()
-        self._scheduler_task = asyncio.create_task(self._run_scheduled_messages())
-        self._subscribe_task = asyncio.create_task(self._keep_chat_subscribed())
-
-    def get_context(self, payload, *, cls=None):
-        return super().get_context(payload, cls=cls or CowContext)
-
-    def api_status(self) -> dict:
-        bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
-        return store.dashboard_snapshot(
-            uptime=store.format_uptime(store.utc_now() - self.start_time),
-            bot_name=bot_name or BOT_NICK,
-            channel=CHANNEL,
-            connected=self.channel_user is not None,
-        )
-
-    async def _subscribe_to_chat(self) -> None:
-        if self._chat_subscribed or self.channel_user is None:
-            return
-        payload = eventsub.ChatMessageSubscription(
-            broadcaster_user_id=self.channel_user.id,
-            user_id=self.bot_id,
-        )
-        try:
-            await self.subscribe_websocket(payload=payload, as_bot=True, token_for=self.bot_id)
-            self._chat_subscribed = True
-            print(f"Subscribed to chat for channel | {CHANNEL}")
-        except Exception as exc:
-            print(f"Chat subscription failed: {exc}")
-            print(
-                "Chat needs TWITCH_TOKEN for SimpleCowBot with scopes user:read:chat, user:write:chat, user:bot. "
-                "Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN onto this Railway service. "
-                "In Cows_Are_Every_Where chat, /mod SimpleCowBot."
-            )
-
-    async def _keep_chat_subscribed(self) -> None:
-        while True:
-            await asyncio.sleep(20)
-            if not self._chat_subscribed:
-                print("Retrying chat subscription...")
-                await self._subscribe_to_chat()
-
-    async def event_oauth_authorized(self, payload) -> None:
-        await self.add_token(payload["access_token"], payload["refresh_token"])
-        await self._subscribe_to_chat()
-
-    async def send_channel_message(self, content: str) -> None:
-        if self.channel_user is None:
-            return
-        try:
-            await self.channel_user.send_message(content, sender=self.bot_id, token_for=self.bot_id)
-        except Exception as exc:
-            print(f"Failed to send channel message: {exc}")
-
-    async def _run_scheduled_messages(self) -> None:
-        while True:
-            try:
-                if self.channel_user is not None:
-                    for row in store.due_scheduled_messages():
-                        try:
-                            await self.channel_user.send_message(
-                                row["message"],
-                                sender=self.bot_id,
-                                token_for=self.bot_id,
-                            )
-                            store.mark_scheduled_sent(row["id"])
-                            print(f"Scheduled message sent | #{row['id']}")
-                        except Exception as exc:
-                            print(f"Failed to send scheduled message #{row['id']}: {exc}")
-            except Exception as exc:
-                print(f"Scheduled message error: {exc}")
-            await asyncio.sleep(15)
-
-    async def event_ready(self):
-        bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
-        prefixes = " ".join(store.get_command_prefixes())
-        print(f"Logged in as | {bot_name}")
-        print(f"Connected to channel | {CHANNEL}")
-        print(f"Command prefixes | {prefixes}")
-        print("Scheduled messages and prefixes can be changed from the dashboard.")
-
-    async def event_message(self, payload) -> None:
-        chatter = getattr(payload.chatter, "name", None) or "unknown"
-        text = getattr(payload, "text", "") or ""
-        print(f"Chat | {chatter}: {text}")
-        if any(text.startswith(prefix) for prefix in store.get_command_prefixes()):
-            print(f"Command attempt | {chatter}: {text}")
-        chatter_id = str(getattr(payload.chatter, "id", "") or "")
-        if chatter_id and chatter_id == str(self.bot_id):
-            return
-        await self.process_commands(payload)
-
-    async def event_command_error(self, payload: commands.CommandErrorPayload) -> None:
-        error = payload.exception
-        ctx = payload.context
-        if isinstance(error, commands.CommandNotFound):
-            invoked = getattr(ctx, "invoked_with", None) or getattr(ctx, "_invoked_with", "unknown")
-            print(f"Unknown command | {invoked}")
-            return
-        if isinstance(error, commands.MissingRequiredArgument):
-            command_name = getattr(ctx.command, "name", "command")
-            await ctx.send(f"Missing argument for {store.primary_prefix()}{command_name}.")
-            return
-        if isinstance(error, commands.BadArgument):
-            await ctx.send("Invalid argument.")
-            return
-        await super().event_command_error(payload)
+class CowCommands(commands.Component):
+    def __init__(self, bot: "CowBot"):
+        self.bot = bot
 
     @commands.command(name="uptime")
     async def uptime(self, ctx: commands.Context):
-        await ctx.send(f"Bot uptime: {store.format_uptime(store.utc_now() - self.start_time)}.")
+        await ctx.send(f"Bot uptime: {store.format_uptime(store.utc_now() - self.bot.start_time)}.")
 
     @commands.command(name="ping")
     async def ping(self, ctx: commands.Context):
@@ -604,6 +432,173 @@ class CowBot(commands.Bot):
             return
         store.change_points(to_user, amount_value)
         await ctx.send(f"{author_name} transferred {amount_value} points to {to_user}.")
+
+
+
+class CowContext(commands.Context):
+    async def send(self, content: str, *, me: bool = False):
+        message = (f"/me {content}" if me else content).strip()
+        try:
+            return await self.channel.send_message(
+                sender=self.bot.bot_id,
+                message=message,
+                token_for=self.bot.bot_id,
+            )
+        except Exception as exc:
+            print(f"Failed to send chat reply: {exc}")
+            raise
+
+
+class CowBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            client_id=TWITCH_CLIENT_ID,
+            client_secret=TWITCH_CLIENT_SECRET,
+            bot_id=TWITCH_BOT_ID,
+            prefix=prefixes_for_message,
+            scopes=Scopes(
+                user_read_chat=True,
+                user_write_chat=True,
+                user_bot=True,
+            ),
+        )
+        self.start_time = store.utc_now()
+        self.channel_user = None
+        self._chat_subscribed = False
+
+    async def setup_hook(self) -> None:
+        store.init_db()
+        api_app = create_api_app(get_status=self.api_status, announce=self.send_channel_message)
+        await start_api_server(api_app)
+
+        if not BOT_TOKEN:
+            raise RuntimeError(
+                "TWITCH_TOKEN is missing. EventSub chat needs the SimpleCowBot user token. "
+                "Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN from local .env into this Railway service."
+            )
+        try:
+            await self.add_token(BOT_TOKEN, BOT_REFRESH_TOKEN)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not use TWITCH_TOKEN: {exc}. "
+                "Set TWITCH_TOKEN and TWITCH_REFRESH_TOKEN on Railway from .tio.tokens.json or local .env."
+            ) from exc
+
+        users = await self.fetch_users(logins=[CHANNEL.lower()])
+        if not users:
+            raise RuntimeError(f"Could not find Twitch channel '{CHANNEL}'. Check TWITCH_CHANNEL in your .env file.")
+        self.channel_user = users[0]
+        await self._subscribe_to_chat()
+        await self.add_component(CowCommands(self))
+        names = ", ".join(sorted({cmd.name for cmd in self.unique_commands}))
+        print(f"Loaded commands | {names}")
+        self._scheduler_task = asyncio.create_task(self._run_scheduled_messages())
+        self._subscribe_task = asyncio.create_task(self._keep_chat_subscribed())
+
+    def get_context(self, payload, *, cls=None):
+        return super().get_context(payload, cls=cls or CowContext)
+
+    def api_status(self) -> dict:
+        bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
+        return store.dashboard_snapshot(
+            uptime=store.format_uptime(store.utc_now() - self.start_time),
+            bot_name=bot_name or BOT_NICK,
+            channel=CHANNEL,
+            connected=self.channel_user is not None,
+        )
+
+    async def _subscribe_to_chat(self) -> None:
+        if self._chat_subscribed or self.channel_user is None:
+            return
+        payload = eventsub.ChatMessageSubscription(
+            broadcaster_user_id=self.channel_user.id,
+            user_id=self.bot_id,
+        )
+        try:
+            await self.subscribe_websocket(payload=payload, as_bot=True, token_for=self.bot_id)
+            self._chat_subscribed = True
+            print(f"Subscribed to chat for channel | {CHANNEL}")
+        except Exception as exc:
+            print(f"Chat subscription failed: {exc}")
+            print(
+                "Chat needs TWITCH_TOKEN for SimpleCowBot with scopes user:read:chat, user:write:chat, user:bot. "
+                "Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN onto this Railway service. "
+                "In Cows_Are_Every_Where chat, /mod SimpleCowBot."
+            )
+
+    async def _keep_chat_subscribed(self) -> None:
+        while True:
+            await asyncio.sleep(20)
+            if not self._chat_subscribed:
+                print("Retrying chat subscription...")
+                await self._subscribe_to_chat()
+
+    async def event_oauth_authorized(self, payload) -> None:
+        await self.add_token(payload["access_token"], payload["refresh_token"])
+        await self._subscribe_to_chat()
+
+    async def send_channel_message(self, content: str) -> None:
+        if self.channel_user is None:
+            return
+        try:
+            await self.channel_user.send_message(content, sender=self.bot_id, token_for=self.bot_id)
+        except Exception as exc:
+            print(f"Failed to send channel message: {exc}")
+
+    async def _run_scheduled_messages(self) -> None:
+        while True:
+            try:
+                if self.channel_user is not None:
+                    for row in store.due_scheduled_messages():
+                        try:
+                            await self.channel_user.send_message(
+                                row["message"],
+                                sender=self.bot_id,
+                                token_for=self.bot_id,
+                            )
+                            store.mark_scheduled_sent(row["id"])
+                            print(f"Scheduled message sent | #{row['id']}")
+                        except Exception as exc:
+                            print(f"Failed to send scheduled message #{row['id']}: {exc}")
+            except Exception as exc:
+                print(f"Scheduled message error: {exc}")
+            await asyncio.sleep(15)
+
+    async def event_ready(self):
+        bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
+        prefixes = " ".join(store.get_command_prefixes())
+        print(f"Logged in as | {bot_name}")
+        print(f"Connected to channel | {CHANNEL}")
+        print(f"Command prefixes | {prefixes}")
+        print("Scheduled messages and prefixes can be changed from the dashboard.")
+
+    async def event_message(self, payload) -> None:
+        chatter = getattr(payload.chatter, "name", None) or "unknown"
+        text = getattr(payload, "text", "") or ""
+        print(f"Chat | {chatter}: {text}")
+        if any(text.startswith(prefix) for prefix in store.get_command_prefixes()):
+            print(f"Command attempt | {chatter}: {text}")
+        chatter_id = str(getattr(payload.chatter, "id", "") or "")
+        if chatter_id and chatter_id == str(self.bot_id):
+            return
+        await self.process_commands(payload)
+
+    async def event_command_error(self, payload: commands.CommandErrorPayload) -> None:
+        error = payload.exception
+        ctx = payload.context
+        if isinstance(error, commands.CommandNotFound):
+            invoked = getattr(ctx, "invoked_with", None) or getattr(ctx, "_invoked_with", "unknown")
+            print(f"Unknown command | {invoked}")
+            return
+        if isinstance(error, commands.MissingRequiredArgument):
+            command_name = getattr(ctx.command, "name", "command")
+            await ctx.send(f"Missing argument for {store.primary_prefix()}{command_name}.")
+            return
+        if isinstance(error, commands.BadArgument):
+            await ctx.send("Invalid argument.")
+            return
+        await super().event_command_error(payload)
+
 
 
 if __name__ == "__main__":
