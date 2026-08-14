@@ -3,7 +3,8 @@ import os
 
 import requests
 from dotenv import find_dotenv, load_dotenv
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, make_response, redirect, render_template, request, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import store
 
@@ -20,6 +21,7 @@ logging.getLogger("urllib3").setLevel(logging.ERROR)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY") or os.getenv("API_SECRET") or "cowbot-dev-secret"
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 EMPTY_STATUS = {
     "ok": False,
@@ -56,6 +58,23 @@ EMPTY_STATUS = {
     },
     "builtin_command_groups": store.get_command_groups(live=False),
 }
+
+
+def public_origin() -> str:
+    configured = (os.getenv("PUBLIC_URL") or os.getenv("RAILWAY_PUBLIC_DOMAIN") or "").strip().rstrip("/")
+    if configured:
+        if configured.startswith("http://") or configured.startswith("https://"):
+            return configured
+        return f"https://{configured}"
+    proto = (request.headers.get("X-Forwarded-Proto") or request.scheme or "https").split(",")[0].strip()
+    host = (request.headers.get("X-Forwarded-Host") or request.host).split(",")[0].strip()
+    if "railway.app" in host and proto == "http":
+        proto = "https"
+    return f"{proto}://{host}"
+
+
+def overlay_page_url() -> str:
+    return f"{public_origin()}{url_for('giveaway_overlay')}"
 
 
 def bot_headers() -> dict[str, str]:
@@ -137,7 +156,7 @@ def proxy_status():
 
 @app.route("/")
 def dashboard():
-    return render_template("dashboard.html", status=fetch_status())
+    return render_template("dashboard.html", status=fetch_status(), overlay_url=overlay_page_url())
 
 
 @app.route("/update-settings", methods=["POST"])
@@ -246,7 +265,10 @@ def reroll_giveaway():
 
 @app.route("/overlay/giveaway")
 def giveaway_overlay():
-    return render_template("giveaway_overlay.html")
+    resp = make_response(render_template("giveaway_overlay.html"))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.route("/overlay/giveaway/state")
@@ -258,9 +280,17 @@ def giveaway_overlay_state():
             timeout=3,
         )
         data = response.json() if response.content else {}
-        return jsonify(data if isinstance(data, dict) else {"ok": True, "spin": None}), response.status_code
+        payload = data if isinstance(data, dict) else {"ok": True, "spin": None}
+        payload.setdefault("ok", True)
+        if "spin" not in payload:
+            payload["spin"] = None
+        body = jsonify(payload)
+        body.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return body, 200
     except (requests.RequestException, ValueError):
-        return jsonify({"ok": True, "spin": None})
+        body = jsonify({"ok": True, "spin": None})
+        body.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return body
 
 
 @app.route("/quote", methods=["POST"])

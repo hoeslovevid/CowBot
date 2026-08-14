@@ -269,12 +269,12 @@
             <button type="button" class="ghost" id="reroll-giveaway">Reroll</button>
           </div>
           <label>OBS browser source
-            <input id="overlay-url" readonly value="{{ request.url_root.rstrip('/') }}{{ url_for('giveaway_overlay') }}">
+            <input id="overlay-url" readonly value="{{ overlay_url }}">
           </label>
           <div class="actions">
             <button type="button" class="ghost" id="copy-overlay-url">Copy OBS URL</button>
           </div>
-          <p class="muted">In OBS: Browser Source, 1080×1080, transparent background. Pick winner here and the wheel spins on stream.</p>
+          <p class="muted">In OBS: Browser Source, 1080×1080, check <strong>Transparent</strong>, and uncheck <strong>Shutdown source when not visible</strong>. Leave this source in the scene you stream. The wheel stays hidden until you pick a winner here.</p>
         </form>
       </section>
 

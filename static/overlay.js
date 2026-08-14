@@ -2,6 +2,12 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isFreshSpin(spin) {
+  const created = Date.parse(spin && spin.created_at);
+  if (Number.isNaN(created)) return Boolean(spin && spin.id);
+  return Date.now() - created < 30000;
+}
+
 function setupOverlayWheel() {
   const stage = document.getElementById("overlay-wheel");
   const canvas = document.getElementById("overlay-wheel-canvas");
@@ -20,9 +26,10 @@ function setupOverlayWheel() {
     const reroll = Boolean(payload.reroll);
     const { slices, target } = buildSlices(payload.entries || [], winner);
     disc.style.transform = "rotate(0deg)";
-    drawWheel(canvas, slices);
     stage.hidden = false;
     stage.classList.remove("revealed", "leaving");
+    void stage.offsetWidth;
+    drawWheel(canvas, slices);
     kicker.textContent = reroll ? "Reroll" : "Giveaway";
     title.textContent = reroll ? "Spinning again" : (payload.name ? payload.name : "Giveaway");
     winnerLabel.hidden = true;
@@ -45,20 +52,30 @@ function setupOverlayWheel() {
   async function poll() {
     if (spinning) return;
     try {
-      const response = await fetch("/overlay/giveaway/state", { headers: { "Accept": "application/json" } });
+      const response = await fetch("/overlay/giveaway/state", {
+        cache: "no-store",
+        headers: { "Accept": "application/json" },
+      });
       if (!response.ok) return;
       const data = await response.json();
       const spin = data && data.spin;
       const spinId = spin && spin.id;
       if (!primed) {
-        seenId = spinId || null;
         primed = true;
+        if (spinId && isFreshSpin(spin)) {
+          spinning = true;
+          await playSpin(spin);
+          seenId = spinId;
+          spinning = false;
+        } else {
+          seenId = spinId || null;
+        }
         return;
       }
       if (!spinId || spinId === seenId) return;
-      seenId = spinId;
       spinning = true;
       await playSpin(spin);
+      seenId = spinId;
     } catch (_error) {
       // Keep the overlay idle if the dashboard or bot is briefly unreachable.
     }
@@ -66,7 +83,7 @@ function setupOverlayWheel() {
   }
 
   poll();
-  setInterval(poll, 750);
+  setInterval(poll, 500);
 }
 
 setupOverlayWheel();
