@@ -249,6 +249,16 @@ h2 { font-size: 26px; font-weight: 700; }
   gap: 12px;
 }
 
+.form-grid .span-2 { grid-column: 1 / -1; }
+
+.field-hint {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
+}
+
 .stack { display: grid; gap: 12px; }
 
 label {

@@ -98,7 +98,7 @@
       <section class="card">
         <div class="card-head">
           <h2>Economy</h2>
-          <p>Daily rewards and raffle defaults</p>
+          <p>Daily rewards, raffle defaults, and chat prefixes</p>
         </div>
         <form method="post" action="{{ url_for('update_settings') }}" class="form-grid">
           <label>Daily min
@@ -113,8 +113,9 @@
           <label>Default raffle cost
             <input name="default_raffle_cost" type="number" min="1" value="{{ status.settings.default_raffle_cost }}">
           </label>
-          <label>Command prefixes
+          <label class="span-2">Command prefixes
             <input name="prefixes" value="{{ status.settings.prefixes }}" placeholder="?, !">
+            <span class="field-hint">Comma-separated. The first one is used in bot messages. Twitch blocks <code>/</code>.</span>
           </label>
           <button type="submit" class="primary">Save settings</button>
         </form>

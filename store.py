@@ -194,7 +194,7 @@ def init_db():
             """
         )
         if not conn.execute("SELECT 1 FROM config WHERE key = 'command_prefixes'").fetchone():
-            env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?") or ("?",)
+            env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?,!") or ("?", "!")
             upsert_config(conn, "command_prefixes", ",".join(env_prefixes))
 
 
@@ -732,9 +732,9 @@ def parse_prefixes(raw: str | None) -> tuple[str, ...]:
 
 def get_command_prefixes() -> tuple[str, ...]:
     stored = parse_prefixes(get_setting("command_prefixes", ""))
-    env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?")
-    base = stored or env_prefixes or ("?",)
-    return tuple(dict.fromkeys(tuple(base) + ("?", "!")))
+    if stored:
+        return stored
+    return parse_prefixes(os.getenv("PREFIX") or "?,!") or ("?", "!")
 
 
 def primary_prefix() -> str:
@@ -988,7 +988,7 @@ def get_dashboard_settings() -> dict:
         "daily_max": daily_max,
         "starting_points": parse_non_negative_int(get_setting("starting_points", "100"), 100),
         "default_raffle_cost": max(parse_non_negative_int(get_setting("default_raffle_cost", "50"), 50), 1),
-        "prefixes": ",".join(prefixes),
+        "prefixes": ", ".join(prefixes),
         "primary_prefix": prefixes[0],
     }
 
