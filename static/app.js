@@ -18,4 +18,4 @@ async function refreshStatus() {
   }
 }
 
-setInterval(refreshStatus, 5000);
+setInterval(refreshStatus, 15000);

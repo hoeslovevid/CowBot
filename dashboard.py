@@ -1,3 +1,4 @@
+import logging
 import os
 
 import requests
@@ -11,6 +12,9 @@ if env_path:
 BOT_API_URL = (os.getenv("BOT_API_URL") or "http://127.0.0.1:8080").rstrip("/")
 API_SECRET = os.getenv("API_SECRET", "")
 PORT = int(os.getenv("PORT") or "5000")
+
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.ERROR)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY") or os.getenv("API_SECRET") or "cowbot-dev-secret"
@@ -84,8 +88,7 @@ def post_bot(path: str, payload: dict) -> tuple[bool, str | None]:
 
 @app.route("/health")
 def health():
-    status = fetch_status()
-    return {"ok": True, "service": "dashboard", "bot_reachable": status.get("bot_reachable", False)}
+    return {"ok": True, "service": "dashboard"}
 
 
 @app.route("/api/status")

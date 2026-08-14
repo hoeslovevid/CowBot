@@ -145,7 +145,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
 async def start_api_server(app: web.Application) -> web.AppRunner:
     host = os.getenv("BOT_API_HOST", "0.0.0.0")
     port = int(os.getenv("PORT") or os.getenv("BOT_API_PORT") or "8080")
-    runner = web.AppRunner(app)
+    runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()

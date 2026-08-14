@@ -16,6 +16,13 @@ def strip_oauth_prefix(token: str) -> str:
     return token
 
 
+def env_value(key: str) -> str:
+    value = (os.getenv(key) or "").strip()
+    if not value or value.lower().startswith("your_"):
+        return ""
+    return value
+
+
 def load_environment() -> None:
     env_path = find_dotenv()
     if env_path:
@@ -25,10 +32,9 @@ def load_environment() -> None:
         key for key in (
             "TWITCH_CLIENT_ID",
             "TWITCH_CLIENT_SECRET",
-            "TWITCH_BOT_ID",
             "TWITCH_NICK",
             "TWITCH_CHANNEL",
-        ) if not os.getenv(key)
+        ) if not env_value(key)
     ]
     if missing:
         raise RuntimeError(
@@ -38,16 +44,58 @@ def load_environment() -> None:
         )
 
 
+def fetch_twitch_user_id(login: str) -> str | None:
+    import json
+    import urllib.parse
+    import urllib.request
+
+    token_body = urllib.parse.urlencode({
+        "client_id": TWITCH_CLIENT_ID,
+        "client_secret": TWITCH_CLIENT_SECRET,
+        "grant_type": "client_credentials",
+    }).encode()
+    token_request = urllib.request.Request("https://id.twitch.tv/oauth2/token", data=token_body, method="POST")
+    with urllib.request.urlopen(token_request) as response:
+        access_token = json.loads(response.read())["access_token"]
+
+    user_request = urllib.request.Request(
+        "https://api.twitch.tv/helix/users?login=" + urllib.parse.quote(login.lower()),
+        headers={
+            "Client-ID": TWITCH_CLIENT_ID,
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+    with urllib.request.urlopen(user_request) as response:
+        users = json.loads(response.read()).get("data") or []
+    if not users:
+        return None
+    return str(users[0]["id"])
+
+
+def resolve_bot_id() -> str:
+    configured = env_value("TWITCH_BOT_ID")
+    if configured.isdigit():
+        return configured
+    user_id = fetch_twitch_user_id(BOT_NICK)
+    if not user_id:
+        raise RuntimeError(
+            f"Could not find Twitch user '{BOT_NICK}'. Confirm the SimplyCowBot account exists, "
+            "the username is exact, and the email is verified. Then set TWITCH_BOT_ID to that account's numeric user ID."
+        )
+    print(f"Resolved TWITCH_BOT_ID for {BOT_NICK}: {user_id}")
+    return user_id
+
+
 load_environment()
 
-TWITCH_CLIENT_ID: str = os.getenv("TWITCH_CLIENT_ID") or ""
-TWITCH_CLIENT_SECRET: str = os.getenv("TWITCH_CLIENT_SECRET") or ""
-TWITCH_BOT_ID: str = os.getenv("TWITCH_BOT_ID") or ""
-BOT_TOKEN: str = strip_oauth_prefix(os.getenv("TWITCH_TOKEN") or "")
-BOT_REFRESH_TOKEN: str = (os.getenv("TWITCH_REFRESH_TOKEN") or "").strip()
-BOT_NICK: str = os.getenv("TWITCH_NICK") or ""
-CHANNEL: str = (os.getenv("TWITCH_CHANNEL") or "").lstrip("#").strip()
+TWITCH_CLIENT_ID: str = env_value("TWITCH_CLIENT_ID")
+TWITCH_CLIENT_SECRET: str = env_value("TWITCH_CLIENT_SECRET")
+BOT_TOKEN: str = strip_oauth_prefix(env_value("TWITCH_TOKEN"))
+BOT_REFRESH_TOKEN: str = env_value("TWITCH_REFRESH_TOKEN")
+BOT_NICK: str = env_value("TWITCH_NICK")
+CHANNEL: str = env_value("TWITCH_CHANNEL").lstrip("#")
 COMMAND_PREFIX: str = os.getenv("PREFIX", "!") or "!"
+TWITCH_BOT_ID: str = resolve_bot_id()
 
 bot: "CowBot | None" = None
 
@@ -148,6 +196,8 @@ class CowBot(commands.Bot):
     async def event_command_error(self, payload: commands.CommandErrorPayload) -> None:
         error = payload.exception
         ctx = payload.context
+        if isinstance(error, commands.CommandNotFound):
+            return
         if isinstance(error, commands.MissingRequiredArgument):
             command_name = getattr(ctx.command, "name", "command")
             await ctx.send(f"Missing argument for !{command_name}.")
