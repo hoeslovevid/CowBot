@@ -838,6 +838,10 @@ BUILTIN_COMMANDS = {
     "quote": {"blurb": "Look up or add quotes", "module": "quotes"},
 }
 
+DEFAULT_LURK_MESSAGE = (
+    "{user} steps back into the shadows. Pay no mind to those who lurk in the shadows."
+)
+
 
 def is_command_enabled(name: str) -> bool:
     if name not in BUILTIN_COMMANDS:
@@ -1141,7 +1145,31 @@ def get_dashboard_settings() -> dict:
         "default_raffle_cost": max(parse_non_negative_int(get_setting("default_raffle_cost", "50"), 50), 1),
         "prefixes": ", ".join(prefixes),
         "primary_prefix": prefixes[0],
+        "lurk_message": get_lurk_message(),
     }
+
+
+def get_lurk_message() -> str:
+    text = get_setting("lurk_message", DEFAULT_LURK_MESSAGE).strip()
+    return text or DEFAULT_LURK_MESSAGE
+
+
+def set_lurk_message(raw: str) -> tuple[bool, str | None]:
+    text = " ".join(str(raw or "").split())
+    if not text:
+        return False, "Lurk message cannot be empty."
+    if len(text) > 500:
+        return False, "Lurk message must be 500 characters or less."
+    set_setting("lurk_message", text)
+    return True, None
+
+
+def render_lurk_message(mention: str) -> str:
+    return (
+        get_lurk_message()
+        .replace("{user}", mention)
+        .replace("{prefix}", primary_prefix())
+    )[:500]
 
 
 def get_poll_question(name: str) -> str | None:

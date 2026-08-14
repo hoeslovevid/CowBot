@@ -347,7 +347,7 @@ h2 { font-size: 26px; font-weight: 700; }
 
 .empty { color: var(--muted); }
 
-.form-grid, .stack, .live-box, label, input, button {
+.form-grid, .stack, .live-box, label, input, textarea, button {
   width: 100%;
 }
 
@@ -379,7 +379,7 @@ label {
   font-weight: 700;
 }
 
-input {
+input, textarea {
   appearance: none;
   border: 1px solid var(--line);
   background: rgba(8, 14, 11, 0.8);
@@ -389,7 +389,12 @@ input {
   font: inherit;
 }
 
-input:focus {
+textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+input:focus, textarea:focus {
   outline: 2px solid rgba(232, 197, 71, 0.45);
   border-color: transparent;
 }

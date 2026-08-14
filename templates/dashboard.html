@@ -120,6 +120,10 @@
               </div>
             </div>
           {% endfor %}
+          <label>Lurk message
+            <textarea name="lurk_message" maxlength="500" rows="3">{{ status.settings.lurk_message }}</textarea>
+            <span class="field-hint">Use <code>{user}</code> to mention the chatter.</span>
+          </label>
           <button type="submit" class="primary">Save commands</button>
         </form>
       </section>

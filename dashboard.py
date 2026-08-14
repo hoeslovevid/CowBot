@@ -46,6 +46,7 @@ EMPTY_STATUS = {
         "default_raffle_cost": 50,
         "prefixes": "?,!",
         "primary_prefix": "?",
+        "lurk_message": store.DEFAULT_LURK_MESSAGE,
     },
     "scheduled_messages": [],
     "custom_commands": [],
@@ -169,7 +170,10 @@ def update_builtin_commands():
         name: "1" if request.form.get(name) else "0"
         for name in store.BUILTIN_COMMANDS
     }
-    success, error = post_bot("/api/builtin-commands", flags)
+    success, error = post_bot("/api/builtin-commands", {
+        "commands": flags,
+        "lurk_message": request.form.get("lurk_message"),
+    })
     flash(error or "Built-in commands updated.", "error" if error else "success")
     return redirect(url_for("dashboard"))
 

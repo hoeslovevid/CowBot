@@ -180,10 +180,7 @@ class CowCommands(commands.Component):
     async def lurk(self, ctx: commands.Context):
         if not await require_command(ctx, "lurk"):
             return
-        await ctx.send(
-            f"{get_author_mention(ctx)} steps back into the shadows. "
-            "Pay no mind to those who lurk in the shadows."
-        )
+        await ctx.send(store.render_lurk_message(get_author_mention(ctx)))
 
     @commands.command(name="points")
     async def points(self, ctx: commands.Context, *, target: str | None = None):

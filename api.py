@@ -69,9 +69,20 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
         if unauthorized := await require_auth(request):
             return unauthorized
         payload = await request.json()
-        flags = payload.get("commands") if isinstance(payload.get("commands"), dict) else payload
-        store.set_command_flags(flags if isinstance(flags, dict) else {})
-        return web.json_response({"ok": True, "builtin_command_groups": store.get_command_groups()})
+        if isinstance(payload.get("commands"), dict):
+            flags = payload["commands"]
+        else:
+            flags = {key: payload.get(key) for key in store.BUILTIN_COMMANDS if key in payload}
+        store.set_command_flags(flags)
+        if "lurk_message" in payload:
+            success, error = store.set_lurk_message(str(payload.get("lurk_message") or ""))
+            if not success:
+                return web.json_response({"ok": False, "error": error}, status=400)
+        return web.json_response({
+            "ok": True,
+            "builtin_command_groups": store.get_command_groups(),
+            "settings": store.get_dashboard_settings(),
+        })
 
     async def manage_poll(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
