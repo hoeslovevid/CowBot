@@ -210,7 +210,13 @@ class CowCommands(commands.Component):
             await ctx.send(f"{author_name} spun {number} and lost {wager} points. Total: {remaining}.")
 
     @commands.command(name="giveaway")
-    async def giveaway(self, ctx: commands.Context, action: str, *, name: str | None = None):
+    async def giveaway(self, ctx: commands.Context, action: str | None = None, *, name: str | None = None):
+        if not action:
+            await ctx.send(
+                f"Giveaway commands: {store.primary_prefix()}giveaway start <name>, "
+                f"{store.primary_prefix()}giveaway enter, {store.primary_prefix()}giveaway end"
+            )
+            return
         action = action.lower()
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
@@ -286,7 +292,13 @@ class CowCommands(commands.Component):
         await ctx.send(f"Top points: {leaderboard}")
 
     @commands.command(name="poll")
-    async def poll(self, ctx: commands.Context, action: str, *, args: str | None = None):
+    async def poll(self, ctx: commands.Context, action: str | None = None, *, args: str | None = None):
+        if not action:
+            await ctx.send(
+                f"Poll commands: {store.primary_prefix()}poll start <name> | <question> | <options>, "
+                f"{store.primary_prefix()}poll vote <option>, {store.primary_prefix()}poll end"
+            )
+            return
         action = action.lower()
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
@@ -355,7 +367,13 @@ class CowCommands(commands.Component):
             )
 
     @commands.command(name="raffle")
-    async def raffle(self, ctx: commands.Context, action: str, *, args: str | None = None):
+    async def raffle(self, ctx: commands.Context, action: str | None = None, *, args: str | None = None):
+        if not action:
+            await ctx.send(
+                f"Raffle commands: {store.primary_prefix()}raffle start <name> | <cost>, "
+                f"{store.primary_prefix()}raffle enter, {store.primary_prefix()}raffle end"
+            )
+            return
         action = action.lower()
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
@@ -592,7 +610,12 @@ class CowBot(commands.Bot):
             return
         if isinstance(error, commands.MissingRequiredArgument):
             command_name = getattr(ctx.command, "name", "command")
-            await ctx.send(f"Missing argument for {store.primary_prefix()}{command_name}.")
+            param = getattr(error, "param", None)
+            param_name = getattr(param, "name", None)
+            if param_name:
+                await ctx.send(f"Usage: {store.primary_prefix()}{command_name} <{param_name}>")
+            else:
+                await ctx.send(f"Usage: {store.primary_prefix()}{command_name}")
             return
         if isinstance(error, commands.BadArgument):
             await ctx.send("Invalid argument.")
