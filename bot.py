@@ -40,7 +40,8 @@ def load_environment() -> None:
         raise RuntimeError(
             "Missing environment variables: "
             + ", ".join(missing)
-            + ". Set them in your environment or .env file."
+            + ". On Railway, add them under this service's Variables. "
+            ".env is not copied into the container."
         )
 
 

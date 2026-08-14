@@ -28,7 +28,33 @@ def internal_bot_port() -> str:
     return requested
 
 
+REQUIRED_BOT_VARS = (
+    "TWITCH_CLIENT_ID",
+    "TWITCH_CLIENT_SECRET",
+    "TWITCH_NICK",
+    "TWITCH_CHANNEL",
+)
+
+
+def missing_bot_vars(env: dict[str, str]) -> list[str]:
+    missing: list[str] = []
+    for key in REQUIRED_BOT_VARS:
+        value = (env.get(key) or "").strip()
+        if not value or value.lower().startswith("your_"):
+            missing.append(key)
+    return missing
+
+
 def supervise_bot(bot_env: dict[str, str]) -> None:
+    missing = missing_bot_vars(bot_env)
+    if missing:
+        print(
+            "Bot is not starting. Add these Railway Variables on this service: "
+            + ", ".join(missing)
+        )
+        print("Copy the values from your local .env. Do not leave placeholders like your_twitch_client_id.")
+        return
+
     while True:
         print("Starting bot.py")
         bot = subprocess.Popen([sys.executable, "-u", "bot.py"], env=bot_env)
