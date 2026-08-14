@@ -1,12 +1,31 @@
+import json
 import os
 import random
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 
-DB_PATH = os.getenv("DB_PATH") or os.path.join(os.path.dirname(__file__), "bot.db")
+
+def resolve_db_path() -> str:
+    volume = (os.getenv("RAILWAY_VOLUME_MOUNT_PATH") or "").strip().rstrip("/\\")
+    configured = (os.getenv("DB_PATH") or "").strip()
+    if volume:
+        volume_abs = os.path.abspath(volume)
+        if configured:
+            configured_abs = os.path.abspath(configured)
+            if configured_abs == volume_abs or configured_abs.startswith(volume_abs + os.sep):
+                return configured
+        return os.path.join(volume, "bot.db")
+    if configured:
+        return configured
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot.db")
+
+
+DB_PATH = resolve_db_path()
 _db_lock = Lock()
+_db_path_logged = False
 
 
 def utc_now() -> datetime:
@@ -53,6 +72,19 @@ def db_session():
 
 
 def init_db():
+    global _db_path_logged
+    if not _db_path_logged:
+        _db_path_logged = True
+        volume = (os.getenv("RAILWAY_VOLUME_MOUNT_PATH") or "").strip()
+        print(f"Database | {os.path.abspath(DB_PATH)}")
+        if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
+            if volume:
+                print(f"Database volume | {volume}")
+            else:
+                print(
+                    "No Railway volume is mounted. Giveaways, points, and quotes will reset on redeploy. "
+                    "Add a Volume to this service with mount path /data, and set DB_PATH=/data/bot.db."
+                )
     with db_session() as conn:
         conn.execute(
             """
@@ -513,6 +545,7 @@ def draw_giveaway() -> tuple[str | None, str | None, list[str]]:
         upsert_config(conn, "pending_giveaway_name", giveaway_name)
         upsert_config(conn, "pending_giveaway_reroll", "")
         upsert_config(conn, "last_giveaway_name", giveaway_name)
+    publish_overlay_spin(winner, giveaway_name, entries, reroll=False)
     return winner, giveaway_name, entries
 
 
@@ -542,6 +575,7 @@ def reroll_giveaway() -> tuple[str | None, str | None, list[str]]:
         upsert_config(conn, "pending_giveaway_name", giveaway_name)
         upsert_config(conn, "pending_giveaway_reroll", "1")
         upsert_config(conn, "last_giveaway_name", giveaway_name)
+    publish_overlay_spin(winner, giveaway_name, remaining, reroll=True)
     return winner, giveaway_name, remaining
 
 
@@ -576,13 +610,63 @@ def finish_giveaway() -> tuple[str | None, str | None]:
         if not rows:
             return None, f"No entries for giveaway '{giveaway_name}'."
         winner = random.choice(rows)["user"]
+        entries = [row["user"] for row in rows]
         _record_giveaway_winner(conn, giveaway_name, winner)
-        return winner, giveaway_name
+    publish_overlay_spin(winner, giveaway_name, entries, reroll=False)
+    return winner, giveaway_name
+
+
+def publish_overlay_spin(winner: str, name: str, entries: list[str], *, reroll: bool = False) -> dict:
+    payload = {
+        "id": uuid.uuid4().hex,
+        "winner": winner,
+        "name": name,
+        "entries": list(entries),
+        "reroll": reroll,
+        "created_at": utc_now().isoformat(),
+    }
+    set_setting("overlay_giveaway_spin", json.dumps(payload))
+    return payload
+
+
+def get_overlay_spin() -> dict | None:
+    raw = get_setting("overlay_giveaway_spin", "")
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or not payload.get("id") or not payload.get("winner"):
+        return None
+    return payload
 
 
 def get_active_giveaway() -> str | None:
     value = get_setting("active_giveaway", "")
     return value or None
+
+
+def current_giveaway_state() -> dict:
+    active = get_active_giveaway()
+    pending_winner, pending_name = get_pending_giveaway()
+    name = active or pending_name
+    if not name:
+        return {
+            "name": None,
+            "open": False,
+            "drawing": False,
+            "entries": [],
+            "count": 0,
+        }
+    entries = get_giveaway_entries(name)
+    return {
+        "name": name,
+        "open": bool(active),
+        "drawing": bool(pending_winner),
+        "entries": entries,
+        "count": len(entries),
+    }
 
 
 def get_last_giveaway_winner() -> str | None:
@@ -815,6 +899,7 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
         {"option": row["option"], "votes": row["votes"]}
         for row in (get_poll_options(poll_name) if poll_name else [])
     ]
+    giveaway = current_giveaway_state()
     return {
         "ok": True,
         "connected": connected,
@@ -826,8 +911,11 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
         "poll_results": poll_results,
         "active_raffle": raffle_name,
         "raffle_cost": get_raffle_cost(raffle_name) if raffle_name else None,
-        "active_giveaway": get_active_giveaway(),
-        "giveaway_entry_count": len(get_giveaway_entries()),
+        "active_giveaway": giveaway["name"],
+        "giveaway_open": giveaway["open"],
+        "giveaway_drawing": giveaway["drawing"],
+        "giveaway_entries": giveaway["entries"],
+        "giveaway_entry_count": giveaway["count"],
         "last_giveaway_winner": get_last_giveaway_winner(),
         "leaderboard": [
             {"user": row["user"], "points": row["points"]}

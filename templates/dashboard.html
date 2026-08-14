@@ -62,7 +62,7 @@
       <article class="stat">
         <span>Giveaway</span>
         <strong data-status="active_giveaway">{{ status.active_giveaway or 'Idle' }}</strong>
-        <em data-status="last_giveaway_winner">{% if status.active_giveaway %}{{ status.giveaway_entry_count }} entered{% elif status.last_giveaway_winner %}Last winner {{ status.last_giveaway_winner }}{% else %}No winner yet{% endif %}</em>
+        <em data-status="last_giveaway_winner">{% if status.giveaway_drawing %}Drawing winner · {{ status.giveaway_entry_count }} entered{% elif status.active_giveaway %}{{ status.giveaway_entry_count }} entered{% elif status.last_giveaway_winner %}Last winner {{ status.last_giveaway_winner }}{% else %}No winner yet{% endif %}</em>
       </article>
       <article class="stat">
         <span>Poll</span>
@@ -185,10 +185,27 @@
         </form>
       </section>
 
-      <section class="card">
+      <section class="card wide">
         <div class="card-head">
           <h2>Giveaway</h2>
           <p>Free entry, then spin the wheel for a winner</p>
+        </div>
+        <div class="live-box" data-status="giveaway_live">
+          {% if status.active_giveaway %}
+            <p class="live-title">{{ status.active_giveaway }}</p>
+            <p class="muted">{% if status.giveaway_drawing %}Entries are locked while a winner is drawn.{% else %}{{ status.giveaway_entry_count }} entered · type <code>{{ status.settings.primary_prefix }}giveaway</code> to join{% endif %}</p>
+            {% if status.giveaway_entries %}
+              <ul class="entry-list">
+                {% for user in status.giveaway_entries %}
+                  <li>{{ user }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="muted">Waiting for entries.</p>
+            {% endif %}
+          {% else %}
+            <p class="muted">No giveaway running. Start one and names will show up here.</p>
+          {% endif %}
         </div>
         <form id="giveaway-form" method="post" action="{{ url_for('manage_giveaway') }}" class="stack">
           <label>Name
@@ -199,6 +216,13 @@
             <button type="submit" name="action" value="end" class="ghost" id="pick-giveaway-winner">Pick winner</button>
             <button type="button" class="ghost" id="reroll-giveaway">Reroll</button>
           </div>
+          <label>OBS browser source
+            <input id="overlay-url" readonly value="{{ request.url_root.rstrip('/') }}{{ url_for('giveaway_overlay') }}">
+          </label>
+          <div class="actions">
+            <button type="button" class="ghost" id="copy-overlay-url">Copy OBS URL</button>
+          </div>
+          <p class="muted">In OBS: Browser Source, 1080×1080, transparent background. Pick winner here and the wheel spins on stream.</p>
         </form>
       </section>
 
@@ -271,6 +295,7 @@
       </div>
     </div>
   </div>
+  <script src="{{ url_for('static', filename='wheel.js') }}"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

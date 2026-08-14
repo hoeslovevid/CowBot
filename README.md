@@ -39,7 +39,7 @@ python start.py
 Use **one service** from this GitHub repo. `python start.py` runs the Twitch bot and the dashboard together.
 
 - Generate a public domain (this is the dashboard)
-- Add a volume mounted at `/data`
+- Add a volume mounted at `/data`. Without it, giveaways, points, and quotes reset on every redeploy.
 - Variables:
 
   ```text

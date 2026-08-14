@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" class="overlay-root">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CowBot Giveaway Wheel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Figtree:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="overlay-page">
+  <div id="overlay-wheel" class="overlay-stage" hidden>
+    <p class="eyebrow" id="overlay-kicker">Giveaway</p>
+    <h1 id="overlay-title">Spinning for a winner</h1>
+    <div class="wheel-stage overlay-wheel">
+      <div class="wheel-pointer" aria-hidden="true"></div>
+      <div class="wheel-disc">
+        <canvas id="overlay-wheel-canvas" width="720" height="720"></canvas>
+      </div>
+      <div class="wheel-hub" aria-hidden="true"></div>
+    </div>
+    <p class="wheel-result overlay-winner" id="overlay-winner" hidden></p>
+  </div>
+  <script src="{{ url_for('static', filename='wheel.js') }}"></script>
+  <script src="{{ url_for('static', filename='overlay.js') }}"></script>
+</body>
+</html>

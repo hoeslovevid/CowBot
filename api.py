@@ -155,6 +155,11 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             return web.json_response({"ok": False, "error": giveaway_name or "No giveaway is currently active."}, status=400)
         return web.json_response({"ok": False, "error": "Unknown giveaway action."}, status=400)
 
+    async def giveaway_overlay(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        return web.json_response({"ok": True, "spin": store.get_overlay_spin()})
+
     async def manage_quote(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
@@ -207,6 +212,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     app.router.add_post("/api/poll", manage_poll)
     app.router.add_post("/api/raffle", manage_raffle)
     app.router.add_post("/api/giveaway", manage_giveaway)
+    app.router.add_get("/api/giveaway/overlay", giveaway_overlay)
     app.router.add_post("/api/quote", manage_quote)
     app.router.add_post("/api/schedule", manage_schedule)
     return app

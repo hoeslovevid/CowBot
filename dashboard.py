@@ -31,6 +31,9 @@ EMPTY_STATUS = {
     "active_raffle": None,
     "raffle_cost": None,
     "active_giveaway": None,
+    "giveaway_open": False,
+    "giveaway_drawing": False,
+    "giveaway_entries": [],
     "giveaway_entry_count": 0,
     "last_giveaway_winner": None,
     "leaderboard": [],
@@ -193,6 +196,25 @@ def complete_giveaway():
 def reroll_giveaway():
     success, data = post_bot_data("/api/giveaway", {"action": "reroll"})
     return jsonify(data), 200 if success else 400
+
+
+@app.route("/overlay/giveaway")
+def giveaway_overlay():
+    return render_template("giveaway_overlay.html")
+
+
+@app.route("/overlay/giveaway/state")
+def giveaway_overlay_state():
+    try:
+        response = requests.get(
+            f"{BOT_API_URL}/api/giveaway/overlay",
+            headers=bot_headers(),
+            timeout=3,
+        )
+        data = response.json() if response.content else {}
+        return jsonify(data if isinstance(data, dict) else {"ok": True, "spin": None}), response.status_code
+    except (requests.RequestException, ValueError):
+        return jsonify({"ok": True, "spin": None})
 
 
 @app.route("/quote", methods=["POST"])
