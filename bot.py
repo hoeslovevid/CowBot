@@ -111,16 +111,37 @@ def get_author_name(ctx: commands.Context) -> str:
     return getattr(author, "name", None) or getattr(author, "display_name", None) or "Unknown"
 
 
+def _badge_set_ids(source) -> set[str]:
+    badges = getattr(source, "badges", None) or []
+    ids: set[str] = set()
+    for badge in badges:
+        set_id = getattr(badge, "set_id", None)
+        if set_id:
+            ids.add(str(set_id).lower())
+    return ids
+
+
 def is_mod_or_broadcaster(ctx: commands.Context) -> bool:
     chatter = getattr(ctx, "chatter", None) or getattr(ctx, "author", None)
     if chatter is None:
         return False
-    return bool(
-        getattr(chatter, "moderator", False)
-        or getattr(chatter, "broadcaster", False)
-        or getattr(chatter, "is_mod", False)
-        or getattr(chatter, "is_broadcaster", False)
-    )
+
+    chatter_id = str(getattr(chatter, "id", "") or "")
+    chatter_login = str(getattr(chatter, "name", "") or "").lower()
+    broadcaster = getattr(ctx, "broadcaster", None)
+    broadcaster_id = str(getattr(broadcaster, "id", "") or "") if broadcaster is not None else ""
+
+    if chatter_id and broadcaster_id and chatter_id == broadcaster_id:
+        return True
+    if chatter_login and chatter_login == CHANNEL.lower():
+        return True
+    if getattr(chatter, "moderator", False) or getattr(chatter, "broadcaster", False):
+        return True
+
+    badge_ids = _badge_set_ids(chatter)
+    message = getattr(ctx, "message", None) or getattr(ctx, "_payload", None)
+    badge_ids |= _badge_set_ids(message)
+    return bool(badge_ids & {"moderator", "broadcaster"})
 
 
 class CowCommands(commands.Component):
@@ -220,6 +241,7 @@ class CowCommands(commands.Component):
         action = action.lower()
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
+                print(f"Giveaway start denied | {get_author_name(ctx)}")
                 await ctx.send("Only mods and the broadcaster can start giveaways.")
                 return
             if not name:
