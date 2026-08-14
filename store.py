@@ -825,6 +825,7 @@ def set_feature_flags(flags: dict) -> None:
 BUILTIN_COMMANDS = {
     "ping": {"blurb": "Check that the bot is responding", "module": None},
     "uptime": {"blurb": "How long the bot has been online", "module": None},
+    "lurk": {"blurb": "Announce that you're lurking", "module": None},
     "points": {"blurb": "Check a chatter's points", "module": "economy"},
     "daily": {"blurb": "Claim the daily reward", "module": "economy"},
     "gamble": {"blurb": "Coin-flip wager", "module": "economy"},
@@ -1015,20 +1016,7 @@ def mark_scheduled_sent(message_id: int) -> None:
         )
 
 
-RESERVED_COMMANDS = frozenset({
-    "uptime",
-    "ping",
-    "points",
-    "daily",
-    "gamble",
-    "roulette",
-    "giveaway",
-    "quote",
-    "leaderboard",
-    "poll",
-    "raffle",
-    "transfer",
-})
+RESERVED_COMMANDS = frozenset(BUILTIN_COMMANDS)
 
 
 def normalize_command_name(raw: str | None) -> str:
