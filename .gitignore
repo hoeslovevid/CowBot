@@ -3,5 +3,6 @@ __pycache__/
 .venv-1/
 .vscode/
 bot.db
+data/
 .env
 .tio.tokens.json

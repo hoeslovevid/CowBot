@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CowBot Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">
+          <span></span><span></span>
+        </div>
+        <div>
+          <p class="eyebrow">Control room</p>
+          <h1>CowBot</h1>
+        </div>
+      </div>
+      <div class="top-meta">
+        <div class="pill {% if status.bot_reachable and status.connected %}live{% else %}down{% endif %}">
+          <i></i>
+          {% if status.bot_reachable and status.connected %}Live{% elif status.bot_reachable %}Connecting{% else %}Bot offline{% endif %}
+        </div>
+        <div class="channel">
+          <span>Channel</span>
+          <strong>#{{ status.channel }}</strong>
+        </div>
+      </div>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="toasts">
+          {% for category, message in messages %}
+            <p class="toast {{ category }}">{{ message }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="stats">
+      <article class="stat">
+        <span>Uptime</span>
+        <strong data-status="uptime">{{ status.uptime }}</strong>
+        <em>{{ status.bot_name }}</em>
+      </article>
+      <article class="stat">
+        <span>Giveaway</span>
+        <strong data-status="active_giveaway">{{ status.active_giveaway or 'Idle' }}</strong>
+        <em data-status="last_giveaway_winner">{% if status.last_giveaway_winner %}Last winner {{ status.last_giveaway_winner }}{% else %}No winner yet{% endif %}</em>
+      </article>
+      <article class="stat">
+        <span>Poll</span>
+        <strong data-status="active_poll">{{ status.active_poll or 'Idle' }}</strong>
+        <em data-status="poll_question">{{ status.poll_question or 'No active question' }}</em>
+      </article>
+      <article class="stat">
+        <span>Raffle</span>
+        <strong data-status="active_raffle">{{ status.active_raffle or 'Idle' }}</strong>
+        <em data-status="raffle_cost">{% if status.raffle_cost %}{{ status.raffle_cost }} points to enter{% else %}Waiting to start{% endif %}</em>
+      </article>
+    </section>
+
+    <div class="layout">
+      <section class="card">
+        <div class="card-head">
+          <h2>Leaderboard</h2>
+          <p>Top chatters by points</p>
+        </div>
+        <ol class="board" data-status="leaderboard">
+          {% for row in status.leaderboard %}
+            <li>
+              <span class="rank">{{ loop.index }}</span>
+              <span class="user">{{ row.user }}</span>
+              <span class="points">{{ row.points }}</span>
+            </li>
+          {% else %}
+            <li class="empty">No points recorded yet. Chat activity will fill this list.</li>
+          {% endfor %}
+        </ol>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Economy</h2>
+          <p>Rewards and raffle defaults</p>
+        </div>
+        <form method="post" action="{{ url_for('update_settings') }}" class="form-grid">
+          <label>Daily min
+            <input name="daily_min" type="number" min="0" value="{{ status.settings.daily_min }}">
+          </label>
+          <label>Daily max
+            <input name="daily_max" type="number" min="0" value="{{ status.settings.daily_max }}">
+          </label>
+          <label>Starting points
+            <input name="starting_points" type="number" min="0" value="{{ status.settings.starting_points }}">
+          </label>
+          <label>Default raffle cost
+            <input name="default_raffle_cost" type="number" min="1" value="{{ status.settings.default_raffle_cost }}">
+          </label>
+          <button type="submit" class="primary">Save settings</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Poll</h2>
+          <p>Posted to Twitch chat through the bot</p>
+        </div>
+        <div class="live-box" data-status="poll_results">
+          {% if status.active_poll %}
+            <p class="live-title">{{ status.poll_question }}</p>
+            <ul>
+              {% for row in status.poll_results %}
+                <li><span>{{ row.option }}</span><b>{{ row.votes }}</b></li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No poll running.</p>
+          {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('manage_poll') }}" class="stack">
+          <label>Name
+            <input name="poll_name" placeholder="stream-poll">
+          </label>
+          <label>Question
+            <input name="poll_question" placeholder="What game next?">
+          </label>
+          <label>Options
+            <input name="poll_options" placeholder="Minecraft, Valorant, Just Chatting">
+          </label>
+          <div class="actions">
+            <button type="submit" name="action" value="start" class="primary">Start poll</button>
+            <button type="submit" name="action" value="end" class="ghost">End poll</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Raffle</h2>
+          <p>Spend points for a shot at winning</p>
+        </div>
+        <form method="post" action="{{ url_for('manage_raffle') }}" class="stack">
+          <label>Name
+            <input name="raffle_name" placeholder="vip-slot">
+          </label>
+          <label>Entry cost
+            <input name="raffle_cost" type="number" min="1" placeholder="{{ status.settings.default_raffle_cost }}">
+          </label>
+          <div class="actions">
+            <button type="submit" name="action" value="start" class="primary">Start raffle</button>
+            <button type="submit" name="action" value="end" class="ghost">Draw winner</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Giveaway</h2>
+          <p>Free entry, random winner in chat</p>
+        </div>
+        <form method="post" action="{{ url_for('manage_giveaway') }}" class="stack">
+          <label>Name
+            <input name="giveaway_name" placeholder="keyboard-drop">
+          </label>
+          <div class="actions">
+            <button type="submit" name="action" value="start" class="primary">Start giveaway</button>
+            <button type="submit" name="action" value="end" class="ghost">Pick winner</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Quotes</h2>
+          <p>Saved to the bot and usable with !quote</p>
+        </div>
+        <form method="post" action="{{ url_for('manage_quote') }}" class="stack">
+          <label>Quote
+            <input name="quote_text" placeholder="Never give up">
+          </label>
+          <label>Author
+            <input name="quote_author" placeholder="Coach">
+          </label>
+          <button type="submit" class="primary">Add quote</button>
+        </form>
+      </section>
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

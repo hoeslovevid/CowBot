@@ -1,54 +1,83 @@
-# Twitch Giveaway and Gambling Bot
+# CowBot
 
-A simple Twitch chat bot for giveaways, points, gambling, roulette, and user commands.
+Twitch chat bot for points, giveaways, polls, raffles, and quotes, plus a web control room. The website and bot run as two services and talk over an internal HTTP API.
 
-## Setup
+## Local Docker
 
-1. Install dependencies:
+1. Copy `.env.example` to `.env` and fill in your Twitch credentials plus `API_SECRET`.
+2. Start both services:
+
    ```bash
-   pip install -r requirements.txt
+   docker compose up --build
    ```
 
-2. Create a `.env` file in the project root with:
-   ```text
-   TWITCH_CLIENT_ID=your_twitch_client_id
-   TWITCH_CLIENT_SECRET=your_twitch_client_secret
-   TWITCH_BOT_ID=your_bot_user_id
-   TWITCH_TOKEN=your_user_access_token_here
-   TWITCH_REFRESH_TOKEN=your_refresh_token_here
-   TWITCH_NICK=your_bot_username
-   TWITCH_CHANNEL=channel_name
-   PREFIX=!
-   ```
+3. Open the dashboard at [http://localhost:5000](http://localhost:5000).
 
-   The bot validates this file at startup and will error clearly if the file is missing or any of the required variables are not set.
+The `web` container calls the `bot` container at `http://bot:8080`. Starting or ending a poll, raffle, or giveaway from the site posts to the bot API, which updates the database and sends the message in Twitch chat.
 
-   TwitchIO 3 uses EventSub instead of IRC. `TWITCH_TOKEN` must be a **user access token** for the bot account (not an `oauth:` IRC token) with `user:read:chat`, `user:write:chat`, and `user:bot`. A refresh token is strongly recommended so the bot can stay logged in. If tokens are missing or expired, start the bot and authorize it at `http://localhost:4343/oauth`.
+To authorize the bot account locally, also open [http://localhost:4343/oauth](http://localhost:4343/oauth) after the bot is running.
 
-3. Run the bot:
-   ```bash
-   python bot.py
-   ```
+## Without Docker
 
-4. Open the dashboard in your browser at:
-   ```text
-   http://localhost:5000
-   ```
+Run the two processes separately from the project root:
 
-## Commands
+```bash
+python bot.py
+python dashboard.py
+```
 
-- `!points` - Shows your current points.
-- `!points <user>` - Shows another user’s points.
-- `!daily` - Claim a daily reward once per day.
-- `!gamble <amount|all>` - Gamble points with a ~50/50 win chance.
-- `!roulette <amount>` - Play roulette with a chance to win 35x.
-- `!giveaway start <name>` - Start a giveaway (`mod` or broadcaster should run this).
-- `!giveaway enter` - Enter the currently active giveaway.
-- `!giveaway end` - End the giveaway and choose a winner.
-- `!transfer <user> <amount>` - Send points to another user.
+`dashboard.py` expects `BOT_API_URL=http://127.0.0.1:8080`.
 
-## Notes
+## Railway
 
-- The bot uses an SQLite database at `bot.db` to save points and giveaway entries.
-- Make sure your bot account is added to the Twitch chat and has moderator or VIP permissions if necessary.
-- Customize the bot logic in `bot.py` to add more features.
+Railway does not run Compose files. Create **two services** from the same GitHub repo.
+
+### 1. Bot service
+
+- Source: this repo
+- Config file: `railway.bot.toml` (set `RAILWAY_CONFIG_FILE=railway.bot.toml` if asked)
+- Start command: `python bot.py`
+- Add a volume mounted at `/data`
+- Variables:
+
+  ```text
+  TWITCH_CLIENT_ID
+  TWITCH_CLIENT_SECRET
+  TWITCH_BOT_ID
+  TWITCH_TOKEN
+  TWITCH_REFRESH_TOKEN
+  TWITCH_NICK
+  TWITCH_CHANNEL
+  PREFIX=!
+  API_SECRET
+  DB_PATH=/data/bot.db
+  BOT_API_HOST=0.0.0.0
+  ```
+
+Do not generate a public domain for the bot service. Other services reach it at `http://bot.railway.internal:$PORT`.
+
+### 2. Web service
+
+- Source: this repo
+- Uses `railway.toml`
+- Start command: `python dashboard.py`
+- Generate a public domain
+- Variables:
+
+  ```text
+  BOT_API_URL=http://${{bot.RAILWAY_PRIVATE_DOMAIN}}:${{bot.PORT}}
+  API_SECRET=${{bot.API_SECRET}}
+  FLASK_SECRET_KEY=a-long-random-string
+  ```
+
+Rename the Railway services to `bot` and `web` so the private DNS matches, or change `BOT_API_URL` to your bot service name.
+
+## Chat commands
+
+- `!points` / `!points <user>`
+- `!daily`
+- `!gamble <amount|all>`
+- `!roulette <amount>`
+- `!giveaway start <name>` / `enter` / `end`
+- `!transfer <user> <amount>`
+- `!poll`, `!raffle`, `!quote`, `!leaderboard`, `!uptime`
