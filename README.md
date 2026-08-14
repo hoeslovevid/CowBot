@@ -55,12 +55,9 @@ Use **one service** from this GitHub repo. `python start.py` runs the Twitch bot
   API_SECRET
   FLASK_SECRET_KEY
   DB_PATH=/data/bot.db
-  BOT_API_HOST=127.0.0.1
-  BOT_API_PORT=8080
-  BOT_API_URL=http://127.0.0.1:8080
   ```
 
-The public `PORT` serves the dashboard. The bot API stays on `127.0.0.1:8080` inside the same container.
+The public `PORT` serves the dashboard. The bot API uses `127.0.0.1:8090` when `PORT` is `8080`, so the two do not collide. You can leave `BOT_API_URL` unset.
 
 If you still have a second Railway service from the old split setup, you can delete it after this service is healthy.
 

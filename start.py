@@ -4,7 +4,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 
 
 def resolve_role() -> tuple[str, str]:
@@ -21,48 +20,36 @@ def run_script(script: str) -> None:
     runpy.run_path(script, run_name="__main__")
 
 
-def wait_for_bot(url: str, process: subprocess.Popen[bytes]) -> None:
-    for _ in range(60):
-        if process.poll() is not None:
-            raise SystemExit(f"Bot exited before it was ready (code {process.returncode})")
-        try:
-            urllib.request.urlopen(url, timeout=1)
-            return
-        except Exception:
-            time.sleep(0.5)
-    process.terminate()
-    raise SystemExit("Bot API did not become ready")
+def internal_bot_port() -> str:
+    public_port = os.getenv("PORT") or "5000"
+    requested = os.getenv("BOT_API_PORT") or "8080"
+    if requested == public_port:
+        return "8090"
+    return requested
+
+
+def supervise_bot(bot_env: dict[str, str]) -> None:
+    while True:
+        print("Starting bot.py")
+        bot = subprocess.Popen([sys.executable, "-u", "bot.py"], env=bot_env)
+        code = bot.wait()
+        print(f"Bot process exited with {code}; restarting in 5s")
+        time.sleep(5)
 
 
 def run_combined() -> None:
-    bot_port = os.getenv("BOT_API_PORT") or "8080"
+    bot_port = internal_bot_port()
     bot_env = os.environ.copy()
     bot_env.pop("PORT", None)
     bot_env["APP_ROLE"] = "bot"
     bot_env["BOT_API_HOST"] = "127.0.0.1"
     bot_env["BOT_API_PORT"] = bot_port
 
-    print(f"Starting CowBot combined: bot.py on 127.0.0.1:{bot_port}, dashboard on PORT")
-    bot = subprocess.Popen([sys.executable, "-u", "bot.py"], env=bot_env)
+    os.environ["BOT_API_URL"] = f"http://127.0.0.1:{bot_port}"
 
-    def on_bot_exit() -> None:
-        code = bot.wait()
-        print(f"Bot process exited with {code}")
-        os._exit(code or 1)
-
-    threading.Thread(target=on_bot_exit, daemon=True).start()
-    wait_for_bot(f"http://127.0.0.1:{bot_port}/health", bot)
-
-    os.environ["BOT_API_URL"] = os.getenv("BOT_API_URL") or f"http://127.0.0.1:{bot_port}"
-    try:
-        run_script("dashboard.py")
-    finally:
-        if bot.poll() is None:
-            bot.terminate()
-            try:
-                bot.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                bot.kill()
+    print(f"Starting CowBot combined: dashboard on PORT={os.getenv('PORT')}, bot API on 127.0.0.1:{bot_port}")
+    threading.Thread(target=supervise_bot, args=(bot_env,), daemon=True).start()
+    run_script("dashboard.py")
 
 
 def main() -> None:

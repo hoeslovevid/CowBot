@@ -90,7 +90,7 @@ def post_bot(path: str, payload: dict) -> tuple[bool, str | None]:
         return False, f"Could not reach bot API: {exc}"
 
 
-@app.route("/health")
+@app.route("/health", methods=["GET", "HEAD"])
 def health():
     return {"ok": True, "service": "dashboard"}
 
