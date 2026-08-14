@@ -182,6 +182,17 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS custom_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                response TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         if not conn.execute("SELECT 1 FROM config WHERE key = 'command_prefixes'").fetchone():
             env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?") or ("?",)
             upsert_config(conn, "command_prefixes", ",".join(env_prefixes))
@@ -841,6 +852,131 @@ def mark_scheduled_sent(message_id: int) -> None:
         )
 
 
+RESERVED_COMMANDS = frozenset({
+    "uptime",
+    "ping",
+    "points",
+    "daily",
+    "gamble",
+    "roulette",
+    "giveaway",
+    "quote",
+    "leaderboard",
+    "poll",
+    "raffle",
+    "transfer",
+})
+
+
+def normalize_command_name(raw: str | None) -> str:
+    name = (raw or "").strip().lower()
+    for prefix in get_command_prefixes():
+        if name.startswith(prefix):
+            name = name[len(prefix):].lstrip()
+            break
+    name = name.split()[0] if name else ""
+    cleaned = "".join(ch for ch in name if ch.isalnum() or ch in "_-")
+    return cleaned[:32]
+
+
+def _custom_command_row(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "response": row["response"],
+        "enabled": bool(row["enabled"]),
+        "created_at": row["created_at"],
+    }
+
+
+def list_custom_commands() -> list[dict]:
+    with db_session() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, response, enabled, created_at
+            FROM custom_commands
+            ORDER BY name
+            """
+        ).fetchall()
+    return [_custom_command_row(row) for row in rows]
+
+
+def get_custom_command(name: str) -> dict | None:
+    command_name = normalize_command_name(name)
+    if not command_name:
+        return None
+    with db_session() as conn:
+        row = conn.execute(
+            """
+            SELECT id, name, response, enabled, created_at
+            FROM custom_commands
+            WHERE name = ? AND enabled = 1
+            """,
+            (command_name,),
+        ).fetchone()
+    return _custom_command_row(row) if row else None
+
+
+def upsert_custom_command(name: str, response: str) -> tuple[bool, str | None]:
+    command_name = normalize_command_name(name)
+    if not command_name:
+        return False, "Command name cannot be empty."
+    if command_name in RESERVED_COMMANDS:
+        return False, f"'{command_name}' is a built-in command and cannot be replaced."
+    text = (response or "").strip()
+    if not text:
+        return False, "Command response cannot be empty."
+    if len(text) > 500:
+        return False, "Twitch messages cannot exceed 500 characters."
+    with db_session() as conn:
+        conn.execute(
+            """
+            INSERT INTO custom_commands (name, response, enabled, created_at)
+            VALUES (?, ?, 1, ?)
+            ON CONFLICT(name) DO UPDATE SET response = excluded.response, enabled = 1
+            """,
+            (command_name, text, utc_now().isoformat()),
+        )
+    return True, command_name
+
+
+def delete_custom_command(command_id: int) -> bool:
+    with db_session() as conn:
+        cursor = conn.execute("DELETE FROM custom_commands WHERE id = ?", (command_id,))
+        return cursor.rowcount > 0
+
+
+def set_custom_command_enabled(command_id: int, enabled: bool) -> bool:
+    with db_session() as conn:
+        cursor = conn.execute(
+            "UPDATE custom_commands SET enabled = ? WHERE id = ?",
+            (1 if enabled else 0, command_id),
+        )
+        return cursor.rowcount > 0
+
+
+def get_custom_command_by_id(command_id: int) -> dict | None:
+    with db_session() as conn:
+        row = conn.execute(
+            """
+            SELECT id, name, response, enabled, created_at
+            FROM custom_commands
+            WHERE id = ?
+            """,
+            (command_id,),
+        ).fetchone()
+    return _custom_command_row(row) if row else None
+
+
+def render_custom_command(response: str, *, user: str) -> str:
+    text = (
+        (response or "")
+        .replace("{user}", user)
+        .replace("{prefix}", primary_prefix())
+    ).strip()
+    return text[:500]
+
+
 def get_dashboard_settings() -> dict:
     daily_min = parse_non_negative_int(get_setting("daily_min", "25"), 25)
     daily_max = parse_non_negative_int(get_setting("daily_max", "100"), 100)
@@ -923,4 +1059,5 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
         ],
         "settings": get_dashboard_settings(),
         "scheduled_messages": list_scheduled_messages(),
+        "custom_commands": list_custom_commands(),
     }

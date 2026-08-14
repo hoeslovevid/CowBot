@@ -46,6 +46,7 @@ EMPTY_STATUS = {
         "primary_prefix": "?",
     },
     "scheduled_messages": [],
+    "custom_commands": [],
 }
 
 
@@ -250,6 +251,30 @@ def manage_schedule():
             flash("Scheduled message removed.", "success")
         else:
             flash("Scheduled message updated.", "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/commands", methods=["POST"])
+def manage_commands():
+    action = request.form.get("action")
+    if action == "create":
+        success, error = post_bot("/api/commands", {
+            "action": "create",
+            "name": request.form.get("command_name"),
+            "response": request.form.get("command_response"),
+        })
+        flash(error or "Custom command saved.", "error" if error else "success")
+    else:
+        success, error = post_bot("/api/commands", {
+            "action": action,
+            "id": request.form.get("id"),
+        })
+        if error:
+            flash(error, "error")
+        elif action == "delete":
+            flash("Custom command removed.", "success")
+        else:
+            flash("Custom command updated.", "success")
     return redirect(url_for("dashboard"))
 
 

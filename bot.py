@@ -665,6 +665,15 @@ class CowBot(commands.Bot):
         ctx = payload.context
         if isinstance(error, commands.CommandNotFound):
             invoked = getattr(ctx, "invoked_with", None) or getattr(ctx, "_invoked_with", "unknown")
+            custom = store.get_custom_command(str(invoked))
+            if custom:
+                reply = store.render_custom_command(
+                    custom["response"],
+                    user=get_author_name(ctx),
+                )
+                if reply:
+                    await ctx.send(reply)
+                return
             print(f"Unknown command | {invoked}")
             return
         if isinstance(error, commands.MissingRequiredArgument):

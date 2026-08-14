@@ -206,6 +206,34 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             return web.json_response({"ok": True})
         return web.json_response({"ok": False, "error": "Unknown schedule action."}, status=400)
 
+    async def manage_commands(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        payload = await request.json()
+        action = (payload.get("action") or "").lower()
+        if action == "create":
+            success, result = store.upsert_custom_command(
+                str(payload.get("name") or ""),
+                str(payload.get("response") or ""),
+            )
+            if not success:
+                return web.json_response({"ok": False, "error": result}, status=400)
+            return web.json_response({"ok": True, "name": result})
+        command_id = store.parse_non_negative_int(str(payload.get("id", "")), 0)
+        if command_id <= 0:
+            return web.json_response({"ok": False, "error": "Missing custom command."}, status=400)
+        if action == "delete":
+            if not store.delete_custom_command(command_id):
+                return web.json_response({"ok": False, "error": "Custom command not found."}, status=404)
+            return web.json_response({"ok": True})
+        if action == "toggle":
+            row = store.get_custom_command_by_id(command_id)
+            if not row:
+                return web.json_response({"ok": False, "error": "Custom command not found."}, status=404)
+            store.set_custom_command_enabled(command_id, not row["enabled"])
+            return web.json_response({"ok": True})
+        return web.json_response({"ok": False, "error": "Unknown command action."}, status=400)
+
     app.router.add_get("/health", health)
     app.router.add_get("/api/status", status)
     app.router.add_post("/api/settings", update_settings)
@@ -215,6 +243,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     app.router.add_get("/api/giveaway/overlay", giveaway_overlay)
     app.router.add_post("/api/quote", manage_quote)
     app.router.add_post("/api/schedule", manage_schedule)
+    app.router.add_post("/api/commands", manage_commands)
     return app
 
 

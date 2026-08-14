@@ -244,6 +244,39 @@
 
       <section class="card wide">
         <div class="card-head">
+          <h2>Custom commands</h2>
+          <p>Chat replies saved in the database. Use <code>{user}</code> for the chatter’s name.</p>
+        </div>
+        <div class="schedule-list" data-status="custom_commands">
+          {% for row in status.custom_commands %}
+            <article class="schedule-item {% if not row.enabled %}off{% endif %}">
+              <p><code>{{ status.settings.primary_prefix }}{{ row.name }}</code></p>
+              <span class="schedule-meta">{{ row.response }}</span>
+              <form method="post" action="{{ url_for('manage_commands') }}" class="actions">
+                <input type="hidden" name="id" value="{{ row.id }}">
+                <button type="submit" name="action" value="toggle" class="ghost">{% if row.enabled %}Pause{% else %}Resume{% endif %}</button>
+                <button type="submit" name="action" value="delete" class="ghost">Delete</button>
+              </form>
+            </article>
+          {% else %}
+            <p class="muted">No custom commands yet. Add one below, for example <code>{{ status.settings.primary_prefix }}discord</code>.</p>
+          {% endfor %}
+        </div>
+        <form method="post" action="{{ url_for('manage_commands') }}" class="stack">
+          <div class="form-grid">
+            <label>Command
+              <input name="command_name" maxlength="32" placeholder="discord">
+            </label>
+            <label>Reply
+              <input name="command_response" maxlength="500" placeholder="Join the Discord: https://discord.gg/example">
+            </label>
+          </div>
+          <button type="submit" name="action" value="create" class="primary">Save command</button>
+        </form>
+      </section>
+
+      <section class="card wide">
+        <div class="card-head">
           <h2>Scheduled messages</h2>
           <p>Repeating chat lines while the bot is online</p>
         </div>

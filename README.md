@@ -72,3 +72,4 @@ Prefixes are set in the dashboard. Defaults are `?` (and whatever you add, such 
 - `?giveaway` to enter, `?giveaway start <name>` / `end` / `reroll` for mods
 - `?transfer <user> <amount>`
 - `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`, `?ping`
+- Custom commands added from the dashboard, such as `?discord`
