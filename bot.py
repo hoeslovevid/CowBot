@@ -94,7 +94,7 @@ BOT_TOKEN: str = strip_oauth_prefix(env_value("TWITCH_TOKEN"))
 BOT_REFRESH_TOKEN: str = env_value("TWITCH_REFRESH_TOKEN")
 BOT_NICK: str = env_value("TWITCH_NICK")
 CHANNEL: str = env_value("TWITCH_CHANNEL").lstrip("#")
-COMMAND_PREFIX: str = os.getenv("PREFIX", "!") or "!"
+COMMAND_PREFIX: str = os.getenv("PREFIX", "?") or "?"
 TWITCH_BOT_ID: str = resolve_bot_id()
 
 bot: "CowBot | None" = None
@@ -200,7 +200,7 @@ class CowBot(commands.Bot):
             return
         if isinstance(error, commands.MissingRequiredArgument):
             command_name = getattr(ctx.command, "name", "command")
-            await ctx.send(f"Missing argument for !{command_name}.")
+            await ctx.send(f"Missing argument for {COMMAND_PREFIX}{command_name}.")
             return
         if isinstance(error, commands.BadArgument):
             await ctx.send("Invalid argument.")
@@ -235,7 +235,7 @@ class CowBot(commands.Bot):
             amount_value = current
         else:
             if not amount.isdigit():
-                await ctx.send("Usage: !gamble <amount|all>")
+                await ctx.send(f"Usage: {COMMAND_PREFIX}gamble <amount|all>")
                 return
             amount_value = int(amount)
 
@@ -263,7 +263,7 @@ class CowBot(commands.Bot):
         author_name = get_author_name(ctx)
         user = store.normalize_user(author_name)
         if not amount.isdigit():
-            await ctx.send("Usage: !roulette <amount>")
+            await ctx.send(f"Usage: {COMMAND_PREFIX}roulette <amount>")
             return
         wager = int(amount)
         current = store.get_points(user)
@@ -293,13 +293,13 @@ class CowBot(commands.Bot):
                 await ctx.send("Only mods and the broadcaster can start giveaways.")
                 return
             if not name:
-                await ctx.send("Usage: !giveaway start <name>")
+                await ctx.send(f"Usage: {COMMAND_PREFIX}giveaway start <name>")
                 return
             success, result = store.start_giveaway(name)
             if not success:
                 await ctx.send(result or "Could not start giveaway.")
                 return
-            await ctx.send(f"Giveaway '{name}' started! Type !giveaway enter to join.")
+            await ctx.send(f"Giveaway '{name}' started! Type {COMMAND_PREFIX}giveaway enter to join.")
         elif action == "enter":
             success, result = store.enter_giveaway(get_author_name(ctx))
             if not success:
@@ -316,7 +316,10 @@ class CowBot(commands.Bot):
             else:
                 await ctx.send(giveaway_name or "No giveaway is currently active.")
         else:
-            await ctx.send("Giveaway commands: !giveaway start <name>, !giveaway enter, !giveaway end")
+            await ctx.send(
+                f"Giveaway commands: {COMMAND_PREFIX}giveaway start <name>, "
+                f"{COMMAND_PREFIX}giveaway enter, {COMMAND_PREFIX}giveaway end"
+            )
 
     @commands.command(name="quote")
     async def quote(self, ctx: commands.Context, *, text: str | None = None):
@@ -338,7 +341,7 @@ class CowBot(commands.Bot):
             quote_text = quote_text[4:].strip()
 
         if "|" not in quote_text:
-            await ctx.send("Usage: !quote add <quote text> | <author>")
+            await ctx.send(f"Usage: {COMMAND_PREFIX}quote add <quote text> | <author>")
             return
 
         raw_quote, author = map(str.strip, quote_text.split("|", 1))
@@ -366,11 +369,15 @@ class CowBot(commands.Bot):
                 await ctx.send("Only mods and the broadcaster can start polls.")
                 return
             if not args or "|" not in args:
-                await ctx.send("Usage: !poll start <poll name> | <question> | <option1>, <option2>, ...")
+                await ctx.send(
+                    f"Usage: {COMMAND_PREFIX}poll start <poll name> | <question> | <option1>, <option2>, ..."
+                )
                 return
             parts = [part.strip() for part in args.split("|")]
             if len(parts) < 3:
-                await ctx.send("Usage: !poll start <poll name> | <question> | <option1>, <option2>, ...")
+                await ctx.send(
+                    f"Usage: {COMMAND_PREFIX}poll start <poll name> | <question> | <option1>, <option2>, ..."
+                )
                 return
             name = parts[0]
             question = parts[1]
@@ -386,7 +393,7 @@ class CowBot(commands.Bot):
                 await ctx.send("There is no active poll.")
                 return
             if not args:
-                await ctx.send("Usage: !poll vote <option>")
+                await ctx.send(f"Usage: {COMMAND_PREFIX}poll vote <option>")
                 return
             author_name = get_author_name(ctx)
             success, result = store.vote_poll(active_poll, author_name, args)
@@ -418,7 +425,10 @@ class CowBot(commands.Bot):
             top = ", ".join(f"{row['option']}({row['votes']})" for row in results)
             await ctx.send(f"Poll '{active_poll}' ended. Results: {top}")
         else:
-            await ctx.send("Poll commands: !poll start <name> | <question> | <options>, !poll vote <option>, !poll end")
+            await ctx.send(
+                f"Poll commands: {COMMAND_PREFIX}poll start <name> | <question> | <options>, "
+                f"{COMMAND_PREFIX}poll vote <option>, {COMMAND_PREFIX}poll end"
+            )
 
     @commands.command(name="raffle")
     async def raffle(self, ctx: commands.Context, action: str, *, args: str | None = None):
@@ -428,7 +438,7 @@ class CowBot(commands.Bot):
                 await ctx.send("Only mods and the broadcaster can start raffles.")
                 return
             if not args:
-                await ctx.send("Usage: !raffle start <name> | <cost>")
+                await ctx.send(f"Usage: {COMMAND_PREFIX}raffle start <name> | <cost>")
                 return
             if "|" in args:
                 name, cost_text = [part.strip() for part in args.split("|", 1)]
@@ -439,14 +449,16 @@ class CowBot(commands.Bot):
             else:
                 name = args.strip()
                 if not name:
-                    await ctx.send("Usage: !raffle start <name> | <cost>")
+                    await ctx.send(f"Usage: {COMMAND_PREFIX}raffle start <name> | <cost>")
                     return
                 cost = store.get_dashboard_settings()["default_raffle_cost"]
             success, error = store.create_raffle(name, cost)
             if not success:
                 await ctx.send(error or "Could not start raffle.")
                 return
-            await ctx.send(f"Raffle '{name}' started with entry cost {cost} points. Type !raffle enter.")
+            await ctx.send(
+                f"Raffle '{name}' started with entry cost {cost} points. Type {COMMAND_PREFIX}raffle enter."
+            )
         elif action == "enter":
             active_raffle = store.get_active_raffle_name()
             if not active_raffle:
@@ -473,7 +485,10 @@ class CowBot(commands.Bot):
                 return
             await ctx.send(f"Raffle '{active_raffle}' ended! The winner is {winner}.")
         else:
-            await ctx.send("Raffle commands: !raffle start <name> | <cost>, !raffle enter, !raffle end")
+            await ctx.send(
+                f"Raffle commands: {COMMAND_PREFIX}raffle start <name> | <cost>, "
+                f"{COMMAND_PREFIX}raffle enter, {COMMAND_PREFIX}raffle end"
+            )
 
     @commands.command(name="transfer")
     async def transfer(self, ctx: commands.Context, target: str, amount: str):
@@ -484,7 +499,7 @@ class CowBot(commands.Bot):
             await ctx.send("You cannot transfer points to yourself.")
             return
         if not amount.isdigit() or amount == "0":
-            await ctx.send("Usage: !transfer <user> <amount>")
+            await ctx.send(f"Usage: {COMMAND_PREFIX}transfer <user> <amount>")
             return
         amount_value = int(amount)
         spent, current = store.try_spend_points(from_user, amount_value)

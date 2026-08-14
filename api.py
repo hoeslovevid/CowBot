@@ -7,6 +7,7 @@ import store
 
 AnnounceFn = Callable[[str], Awaitable[None]]
 StatusFn = Callable[[], dict]
+COMMAND_PREFIX: str = os.getenv("PREFIX", "?") or "?"
 
 
 def _authorized(request: web.Request) -> bool:
@@ -87,7 +88,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             success, error = store.create_raffle(name, cost)
             if not success:
                 return web.json_response({"ok": False, "error": error}, status=400)
-            await announce(f"Raffle '{name}' started with entry cost {cost} points. Type !raffle enter.")
+            await announce(f"Raffle '{name}' started with entry cost {cost} points. Type {COMMAND_PREFIX}raffle enter.")
             return web.json_response({"ok": True})
         if action == "end":
             active_raffle = store.get_active_raffle_name()
@@ -111,7 +112,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             success, result = store.start_giveaway(name)
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
-            await announce(f"Giveaway '{result}' started! Type !giveaway enter to join.")
+            await announce(f"Giveaway '{result}' started! Type {COMMAND_PREFIX}giveaway enter to join.")
             return web.json_response({"ok": True, "name": result})
         if action == "end":
             winner, giveaway_name = store.finish_giveaway()

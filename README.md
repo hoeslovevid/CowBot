@@ -48,7 +48,7 @@ Railway does not run Compose files. Create **two services** from the same GitHub
   TWITCH_REFRESH_TOKEN
   TWITCH_NICK
   TWITCH_CHANNEL
-  PREFIX=!
+  PREFIX=?
   API_SECRET
   DB_PATH=/data/bot.db
   BOT_API_HOST=0.0.0.0
@@ -74,10 +74,10 @@ Rename the Railway services to `bot` and `web` so the private DNS matches, or ch
 
 ## Chat commands
 
-- `!points` / `!points <user>`
-- `!daily`
-- `!gamble <amount|all>`
-- `!roulette <amount>`
-- `!giveaway start <name>` / `enter` / `end`
-- `!transfer <user> <amount>`
-- `!poll`, `!raffle`, `!quote`, `!leaderboard`, `!uptime`
+- `?points` / `?points <user>`
+- `?daily`
+- `?gamble <amount|all>`
+- `?roulette <amount>`
+- `?giveaway start <name>` / `enter` / `end`
+- `?transfer <user> <amount>`
+- `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`
