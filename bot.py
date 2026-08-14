@@ -153,6 +153,21 @@ class CowBot(commands.Bot):
         self.start_time = store.utc_now()
         self.channel_user = None
         self._chat_subscribed = False
+        self._register_class_commands()
+
+    def _register_class_commands(self) -> None:
+        seen: set[int] = set()
+        for cls in reversed(type(self).__mro__):
+            for member in cls.__dict__.values():
+                if not isinstance(member, commands.Command) or getattr(member, "parent", None):
+                    continue
+                if id(member) in seen:
+                    continue
+                seen.add(id(member))
+                member._injected = self
+                self.add_command(member)
+        names = ", ".join(sorted({cmd.name for cmd in self.unique_commands}))
+        print(f"Loaded commands | {names}")
 
     async def setup_hook(self) -> None:
         store.init_db()
