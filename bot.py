@@ -153,26 +153,41 @@ def is_mod_or_broadcaster(ctx: commands.Context) -> bool:
     return bool(badge_ids & {"moderator", "broadcaster"})
 
 
+async def require_command(ctx: commands.Context, name: str) -> bool:
+    if store.is_command_available(name):
+        return True
+    await ctx.send(store.command_unavailable_message(name))
+    return False
+
+
 class CowCommands(commands.Component):
     def __init__(self, bot: "CowBot"):
         self.bot = bot
 
     @commands.command(name="uptime")
     async def uptime(self, ctx: commands.Context):
+        if not await require_command(ctx, "uptime"):
+            return
         await ctx.send(f"Bot uptime: {store.format_uptime(store.utc_now() - self.bot.start_time)}.")
 
     @commands.command(name="ping")
     async def ping(self, ctx: commands.Context):
+        if not await require_command(ctx, "ping"):
+            return
         await ctx.send("Pong")
 
     @commands.command(name="points")
     async def points(self, ctx: commands.Context, *, target: str | None = None):
+        if not await require_command(ctx, "points"):
+            return
         target = store.normalize_user(target or get_author_name(ctx))
         points = store.get_points(target)
         await ctx.send(f"{target} has {points} points.")
 
     @commands.command(name="daily")
     async def daily(self, ctx: commands.Context):
+        if not await require_command(ctx, "daily"):
+            return
         author_name = get_author_name(ctx)
         claimed, earned, new_total = store.try_claim_daily(author_name)
         if claimed:
@@ -182,6 +197,8 @@ class CowCommands(commands.Component):
 
     @commands.command(name="gamble")
     async def gamble(self, ctx: commands.Context, amount: str):
+        if not await require_command(ctx, "gamble"):
+            return
         author_name = get_author_name(ctx)
         user = store.normalize_user(author_name)
         current = store.get_points(user)
@@ -214,6 +231,8 @@ class CowCommands(commands.Component):
 
     @commands.command(name="roulette")
     async def roulette(self, ctx: commands.Context, amount: str):
+        if not await require_command(ctx, "roulette"):
+            return
         author_name = get_author_name(ctx)
         user = store.normalize_user(author_name)
         if not amount.isdigit():
@@ -241,6 +260,8 @@ class CowCommands(commands.Component):
 
     @commands.command(name="giveaway")
     async def giveaway(self, ctx: commands.Context, action: str | None = None, *, name: str | None = None):
+        if not await require_command(ctx, "giveaway"):
+            return
         if not action:
             action = "enter"
         else:
@@ -299,6 +320,8 @@ class CowCommands(commands.Component):
 
     @commands.command(name="quote")
     async def quote(self, ctx: commands.Context, *, text: str | None = None):
+        if not await require_command(ctx, "quote"):
+            return
         if not text:
             quote = store.get_random_quote()
             if not quote:
@@ -330,6 +353,8 @@ class CowCommands(commands.Component):
 
     @commands.command(name="leaderboard")
     async def leaderboard(self, ctx: commands.Context):
+        if not await require_command(ctx, "leaderboard"):
+            return
         rows = store.get_leaderboard(5)
         if not rows:
             await ctx.send("No leaderboard entries yet.")
@@ -339,6 +364,8 @@ class CowCommands(commands.Component):
 
     @commands.command(name="poll")
     async def poll(self, ctx: commands.Context, action: str | None = None, *, args: str | None = None):
+        if not await require_command(ctx, "poll"):
+            return
         if not action:
             await ctx.send(
                 f"Poll commands: {store.primary_prefix()}poll start <name> | <question> | <options>, "
@@ -414,6 +441,8 @@ class CowCommands(commands.Component):
 
     @commands.command(name="raffle")
     async def raffle(self, ctx: commands.Context, action: str | None = None, *, args: str | None = None):
+        if not await require_command(ctx, "raffle"):
+            return
         if not action:
             await ctx.send(
                 f"Raffle commands: {store.primary_prefix()}raffle start <name> | <cost>, "
@@ -480,6 +509,8 @@ class CowCommands(commands.Component):
 
     @commands.command(name="transfer")
     async def transfer(self, ctx: commands.Context, target: str, amount: str):
+        if not await require_command(ctx, "transfer"):
+            return
         author_name = get_author_name(ctx)
         from_user = store.normalize_user(author_name)
         to_user = store.normalize_user(target)
@@ -625,7 +656,7 @@ class CowBot(commands.Bot):
     async def _run_scheduled_messages(self) -> None:
         while True:
             try:
-                if self.channel_user is not None:
+                if self.channel_user is not None and store.is_feature_enabled("scheduled_messages"):
                     for row in store.due_scheduled_messages():
                         try:
                             await self.channel_user.send_message(
@@ -667,6 +698,9 @@ class CowBot(commands.Bot):
             invoked = getattr(ctx, "invoked_with", None) or getattr(ctx, "_invoked_with", "unknown")
             custom = store.get_custom_command(str(invoked))
             if custom:
+                if not store.is_feature_enabled("custom_commands"):
+                    await ctx.send(store.feature_off_message("custom_commands"))
+                    return
                 reply = store.render_custom_command(
                     custom["response"],
                     user=get_author_name(ctx),

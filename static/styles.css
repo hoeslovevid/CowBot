@@ -191,6 +191,114 @@ h2 { font-size: 26px; font-weight: 700; }
 .card.wide { grid-column: 1 / -1; }
 .card.featured { background: linear-gradient(180deg, rgba(232, 197, 71, 0.08), var(--panel)); }
 
+.card.is-off {
+  opacity: 0.58;
+}
+
+.card.is-off .card-head h2::after {
+  content: "Off";
+  margin-left: 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(244, 231, 195, 0.12);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.card.is-off form {
+  pointer-events: none;
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.module-toggle {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.module-toggle:hover {
+  border-color: rgba(244, 231, 195, 0.22);
+}
+
+.module-toggle:has(input:checked) {
+  border-color: rgba(232, 197, 71, 0.35);
+  background: rgba(232, 197, 71, 0.08);
+}
+
+.module-toggle input[type="checkbox"] {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+  padding: 0;
+  flex-shrink: 0;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: rgba(8, 14, 11, 0.8);
+  cursor: pointer;
+}
+
+.module-toggle input[type="checkbox"]:checked {
+  background-color: var(--butter);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%231A1714' d='M6.2 11.4 2.8 8l1.2-1.2 2.2 2.2 5.8-5.8 1.2 1.2z'/%3E%3C/svg%3E");
+  background-size: 14px;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: var(--butter);
+}
+
+.module-toggle span {
+  display: grid;
+  gap: 4px;
+}
+
+.module-toggle strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.module-toggle em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.command-group {
+  display: grid;
+  gap: 10px;
+}
+
+.command-group h3 {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.command-group.module-off {
+  opacity: 0.62;
+}
+
 .card-head { margin-bottom: 18px; }
 .card-head p { margin-top: 4px; }
 

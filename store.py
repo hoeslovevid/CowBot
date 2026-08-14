@@ -751,6 +751,169 @@ def set_command_prefixes(raw: str) -> tuple[bool, str | None]:
     return True, None
 
 
+FEATURE_MODULES = {
+    "economy": {
+        "label": "Economy",
+        "blurb": "Points, daily, gamble, roulette, transfer, and the leaderboard",
+        "off_message": "Economy commands are currently disabled.",
+    },
+    "giveaway": {
+        "label": "Giveaways",
+        "blurb": "Free-entry giveaways and the winner wheel",
+        "off_message": "Giveaways are currently disabled.",
+    },
+    "poll": {
+        "label": "Polls",
+        "blurb": "Chat polls and voting",
+        "off_message": "Polls are currently disabled.",
+    },
+    "raffle": {
+        "label": "Raffles",
+        "blurb": "Point-entry raffles",
+        "off_message": "Raffles are currently disabled.",
+    },
+    "quotes": {
+        "label": "Quotes",
+        "blurb": "Quote lookup and adding quotes",
+        "off_message": "Quotes are currently disabled.",
+    },
+    "custom_commands": {
+        "label": "Custom commands",
+        "blurb": "Replies you create on this dashboard",
+        "off_message": "Custom commands are currently disabled.",
+    },
+    "scheduled_messages": {
+        "label": "Scheduled messages",
+        "blurb": "Repeating chat lines while the bot is online",
+        "off_message": "Scheduled messages are currently disabled.",
+    },
+}
+
+
+def is_feature_enabled(name: str) -> bool:
+    if name not in FEATURE_MODULES:
+        return True
+    return get_setting(f"feature_{name}", "1") != "0"
+
+
+def feature_off_message(name: str) -> str:
+    meta = FEATURE_MODULES.get(name) or {}
+    return str(meta.get("off_message") or "That module is currently disabled.")
+
+
+def get_feature_flags() -> dict:
+    return {
+        key: {
+            "enabled": is_feature_enabled(key),
+            "label": meta["label"],
+            "blurb": meta["blurb"],
+            "off_message": meta["off_message"],
+        }
+        for key, meta in FEATURE_MODULES.items()
+    }
+
+
+def set_feature_flags(flags: dict) -> None:
+    for key in FEATURE_MODULES:
+        if key not in flags:
+            continue
+        raw = str(flags.get(key, "")).strip().lower()
+        enabled = raw in {"1", "true", "on", "yes"}
+        set_setting(f"feature_{key}", "1" if enabled else "0")
+
+
+BUILTIN_COMMANDS = {
+    "ping": {"blurb": "Check that the bot is responding", "module": None},
+    "uptime": {"blurb": "How long the bot has been online", "module": None},
+    "points": {"blurb": "Check a chatter's points", "module": "economy"},
+    "daily": {"blurb": "Claim the daily reward", "module": "economy"},
+    "gamble": {"blurb": "Coin-flip wager", "module": "economy"},
+    "roulette": {"blurb": "Roulette wager", "module": "economy"},
+    "transfer": {"blurb": "Send points to another chatter", "module": "economy"},
+    "leaderboard": {"blurb": "Top points in chat", "module": "economy"},
+    "giveaway": {"blurb": "Join or run free-entry giveaways", "module": "giveaway"},
+    "poll": {"blurb": "Start, vote, and end polls", "module": "poll"},
+    "raffle": {"blurb": "Join or run point-entry raffles", "module": "raffle"},
+    "quote": {"blurb": "Look up or add quotes", "module": "quotes"},
+}
+
+
+def is_command_enabled(name: str) -> bool:
+    if name not in BUILTIN_COMMANDS:
+        return True
+    return get_setting(f"command_{name}", "1") != "0"
+
+
+def is_command_available(name: str) -> bool:
+    meta = BUILTIN_COMMANDS.get(name)
+    if not meta:
+        return True
+    module = meta.get("module")
+    if module and not is_feature_enabled(module):
+        return False
+    return is_command_enabled(name)
+
+
+def command_unavailable_message(name: str) -> str:
+    meta = BUILTIN_COMMANDS.get(name) or {}
+    module = meta.get("module")
+    if module and not is_feature_enabled(module):
+        return feature_off_message(module)
+    return f"The {primary_prefix()}{name} command is currently disabled."
+
+
+def _command_entry(name: str, *, enabled: bool) -> dict:
+    meta = BUILTIN_COMMANDS[name]
+    return {
+        "name": name,
+        "label": name,
+        "blurb": meta["blurb"],
+        "module": meta["module"],
+        "enabled": enabled,
+    }
+
+
+def get_command_groups(*, live: bool = True) -> list[dict]:
+    by_module: dict[str | None, list[str]] = {}
+    for name, meta in BUILTIN_COMMANDS.items():
+        by_module.setdefault(meta["module"], []).append(name)
+
+    groups = [{
+        "key": "core",
+        "label": "Core",
+        "module": None,
+        "module_enabled": True,
+        "commands": [
+            _command_entry(name, enabled=is_command_enabled(name) if live else True)
+            for name in by_module.get(None, [])
+        ],
+    }]
+    for mod_key, mod in FEATURE_MODULES.items():
+        names = by_module.get(mod_key)
+        if not names:
+            continue
+        groups.append({
+            "key": mod_key,
+            "label": mod["label"],
+            "module": mod_key,
+            "module_enabled": is_feature_enabled(mod_key) if live else True,
+            "commands": [
+                _command_entry(name, enabled=is_command_enabled(name) if live else True)
+                for name in names
+            ],
+        })
+    return groups
+
+
+def set_command_flags(flags: dict) -> None:
+    for name in BUILTIN_COMMANDS:
+        if name not in flags:
+            continue
+        raw = str(flags.get(name, "")).strip().lower()
+        enabled = raw in {"1", "true", "on", "yes"}
+        set_setting(f"command_{name}", "1" if enabled else "0")
+
+
 def list_scheduled_messages() -> list[dict]:
     with db_session() as conn:
         rows = conn.execute(
@@ -1058,6 +1221,8 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
             for row in get_leaderboard(10)
         ],
         "settings": get_dashboard_settings(),
+        "features": get_feature_flags(),
+        "builtin_command_groups": get_command_groups(),
         "scheduled_messages": list_scheduled_messages(),
         "custom_commands": list_custom_commands(),
     }

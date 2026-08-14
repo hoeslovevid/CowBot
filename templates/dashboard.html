@@ -77,7 +77,54 @@
     </section>
 
     <div class="layout">
-      <section class="card featured">
+      <section class="card wide">
+        <div class="card-head">
+          <h2>Modules</h2>
+          <p>Turn chat features on or off without restarting the bot</p>
+        </div>
+        <form method="post" action="{{ url_for('update_features') }}" class="stack">
+          <div class="module-grid">
+            {% for key, feature in status.features.items() %}
+              <label class="module-toggle">
+                <input type="checkbox" name="{{ key }}" value="1" {% if feature.enabled %}checked{% endif %}>
+                <span>
+                  <strong>{{ feature.label }}</strong>
+                  <em>{{ feature.blurb }}</em>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          <button type="submit" class="primary">Save modules</button>
+        </form>
+      </section>
+
+      <section class="card wide">
+        <div class="card-head">
+          <h2>Built-in commands</h2>
+          <p>Turn individual chat commands on or off. A module switch still overrides its group.</p>
+        </div>
+        <form method="post" action="{{ url_for('update_builtin_commands') }}" class="stack">
+          {% for group in status.builtin_command_groups %}
+            <div class="command-group{% if not group.module_enabled %} module-off{% endif %}">
+              <h3>{{ group.label }}{% if not group.module_enabled %} · module off{% endif %}</h3>
+              <div class="module-grid">
+                {% for cmd in group.commands %}
+                  <label class="module-toggle">
+                    <input type="checkbox" name="{{ cmd.name }}" value="1" {% if cmd.enabled %}checked{% endif %}>
+                    <span>
+                      <strong><code>{{ status.settings.primary_prefix }}{{ cmd.name }}</code></strong>
+                      <em>{{ cmd.blurb }}</em>
+                    </span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+          <button type="submit" class="primary">Save commands</button>
+        </form>
+      </section>
+
+      <section class="card featured{% if not status.features.economy.enabled %} is-off{% endif %}">
         <div class="card-head">
           <h2>Herd leaderboard</h2>
           <p>Top chatters by points</p>
@@ -98,7 +145,7 @@
       <section class="card">
         <div class="card-head">
           <h2>Economy</h2>
-          <p>Daily rewards, raffle defaults, and chat prefixes</p>
+          <p>{% if status.features.economy.enabled %}Daily rewards, raffle defaults, and chat prefixes{% else %}Economy commands are off. Prefixes still apply.{% endif %}</p>
         </div>
         <form method="post" action="{{ url_for('update_settings') }}" class="form-grid">
           <label>Daily min
@@ -121,7 +168,7 @@
         </form>
       </section>
 
-      <section class="card wide">
+      <section class="card wide{% if not status.features.poll.enabled %} is-off{% endif %}">
         <div class="card-head">
           <h2>Poll</h2>
           <p>Posted straight into Twitch chat</p>
@@ -167,7 +214,7 @@
         </form>
       </section>
 
-      <section class="card">
+      <section class="card{% if not status.features.raffle.enabled %} is-off{% endif %}">
         <div class="card-head">
           <h2>Raffle</h2>
           <p>Spend points for a shot at winning</p>
@@ -186,7 +233,7 @@
         </form>
       </section>
 
-      <section class="card wide">
+      <section class="card wide{% if not status.features.giveaway.enabled %} is-off{% endif %}">
         <div class="card-head">
           <h2>Giveaway</h2>
           <p>Free entry, then spin the wheel for a winner</p>
@@ -227,7 +274,7 @@
         </form>
       </section>
 
-      <section class="card">
+      <section class="card{% if not status.features.quotes.enabled %} is-off{% endif %}">
         <div class="card-head">
           <h2>Quotes</h2>
           <p>Saved for <code>{{ status.settings.primary_prefix }}quote</code> in chat</p>
@@ -243,7 +290,7 @@
         </form>
       </section>
 
-      <section class="card wide">
+      <section class="card wide{% if not status.features.custom_commands.enabled %} is-off{% endif %}">
         <div class="card-head">
           <h2>Custom commands</h2>
           <p>Chat replies saved in the database. Use <code>{user}</code> for the chatter’s name.</p>
@@ -276,7 +323,7 @@
         </form>
       </section>
 
-      <section class="card wide">
+      <section class="card wide{% if not status.features.scheduled_messages.enabled %} is-off{% endif %}">
         <div class="card-head">
           <h2>Scheduled messages</h2>
           <p>Repeating chat lines while the bot is online</p>

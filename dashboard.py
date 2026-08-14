@@ -5,6 +5,8 @@ import requests
 from dotenv import find_dotenv, load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
+import store
+
 env_path = find_dotenv()
 if env_path:
     load_dotenv(env_path)
@@ -47,6 +49,11 @@ EMPTY_STATUS = {
     },
     "scheduled_messages": [],
     "custom_commands": [],
+    "features": {
+        key: {**meta, "enabled": True}
+        for key, meta in store.FEATURE_MODULES.items()
+    },
+    "builtin_command_groups": store.get_command_groups(live=False),
 }
 
 
@@ -71,6 +78,18 @@ def fetch_status() -> dict:
         response.raise_for_status()
         payload = response.json()
         payload["bot_reachable"] = True
+        features = {
+            key: {**meta, "enabled": True}
+            for key, meta in store.FEATURE_MODULES.items()
+        }
+        incoming = payload.get("features") or {}
+        for key, meta in features.items():
+            row = incoming.get(key)
+            if isinstance(row, dict):
+                meta["enabled"] = bool(row.get("enabled", True))
+        payload["features"] = features
+        if not payload.get("builtin_command_groups"):
+            payload["builtin_command_groups"] = store.get_command_groups(live=False)
         return payload
     except requests.RequestException:
         status = dict(EMPTY_STATUS)
@@ -130,6 +149,28 @@ def update_settings():
         "prefixes": request.form.get("prefixes"),
     })
     flash(error or "Settings saved.", "error" if error else "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/features", methods=["POST"])
+def update_features():
+    flags = {
+        key: "1" if request.form.get(key) else "0"
+        for key in store.FEATURE_MODULES
+    }
+    success, error = post_bot("/api/features", flags)
+    flash(error or "Modules updated.", "error" if error else "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/builtin-commands", methods=["POST"])
+def update_builtin_commands():
+    flags = {
+        name: "1" if request.form.get(name) else "0"
+        for name in store.BUILTIN_COMMANDS
+    }
+    success, error = post_bot("/api/builtin-commands", flags)
+    flash(error or "Built-in commands updated.", "error" if error else "success")
     return redirect(url_for("dashboard"))
 
 

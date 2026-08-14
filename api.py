@@ -27,6 +27,11 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
         return None
 
+    def require_feature(name: str) -> web.Response | None:
+        if store.is_feature_enabled(name):
+            return None
+        return web.json_response({"ok": False, "error": store.feature_off_message(name)}, status=400)
+
     async def status(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
@@ -52,9 +57,27 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
         store.set_setting("default_raffle_cost", str(default_raffle_cost))
         return web.json_response({"ok": True, "settings": store.get_dashboard_settings()})
 
+    async def update_features(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        payload = await request.json()
+        flags = payload.get("features") if isinstance(payload.get("features"), dict) else payload
+        store.set_feature_flags(flags if isinstance(flags, dict) else {})
+        return web.json_response({"ok": True, "features": store.get_feature_flags()})
+
+    async def update_builtin_commands(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        payload = await request.json()
+        flags = payload.get("commands") if isinstance(payload.get("commands"), dict) else payload
+        store.set_command_flags(flags if isinstance(flags, dict) else {})
+        return web.json_response({"ok": True, "builtin_command_groups": store.get_command_groups()})
+
     async def manage_poll(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
+        if disabled := require_feature("poll"):
+            return disabled
         payload = await request.json()
         action = (payload.get("action") or "").lower()
         if action == "start":
@@ -81,6 +104,8 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     async def manage_raffle(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
+        if disabled := require_feature("raffle"):
+            return disabled
         payload = await request.json()
         action = (payload.get("action") or "").lower()
         if action == "start":
@@ -108,6 +133,8 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     async def manage_giveaway(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
+        if disabled := require_feature("giveaway"):
+            return disabled
         payload = await request.json()
         action = (payload.get("action") or "").lower()
         if action == "start":
@@ -163,6 +190,8 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     async def manage_quote(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
+        if disabled := require_feature("quotes"):
+            return disabled
         payload = await request.json()
         text = (payload.get("text") or "").strip()
         author = (payload.get("author") or "Unknown").strip() or "Unknown"
@@ -174,6 +203,8 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     async def manage_schedule(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
+        if disabled := require_feature("scheduled_messages"):
+            return disabled
         payload = await request.json()
         action = (payload.get("action") or "").lower()
         if action == "create":
@@ -209,6 +240,8 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     async def manage_commands(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
+        if disabled := require_feature("custom_commands"):
+            return disabled
         payload = await request.json()
         action = (payload.get("action") or "").lower()
         if action == "create":
@@ -237,6 +270,8 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     app.router.add_get("/health", health)
     app.router.add_get("/api/status", status)
     app.router.add_post("/api/settings", update_settings)
+    app.router.add_post("/api/features", update_features)
+    app.router.add_post("/api/builtin-commands", update_builtin_commands)
     app.router.add_post("/api/poll", manage_poll)
     app.router.add_post("/api/raffle", manage_raffle)
     app.router.add_post("/api/giveaway", manage_giveaway)
