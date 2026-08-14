@@ -63,6 +63,8 @@ If you still have a second Railway service from the old split setup, you can del
 
 ## Chat commands
 
+Prefixes are set in the dashboard. Defaults are `?` (and whatever you add, such as `!`). `/` will not work; Twitch keeps that for its own commands.
+
 - `?points` / `?points <user>`
 - `?daily`
 - `?gamble <amount|all>`

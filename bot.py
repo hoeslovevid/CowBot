@@ -1,5 +1,6 @@
 import os
 import random
+import asyncio
 
 from dotenv import load_dotenv, find_dotenv
 from twitchio import Scopes, eventsub
@@ -95,16 +96,13 @@ BOT_TOKEN: str = strip_oauth_prefix(env_value("TWITCH_TOKEN"))
 BOT_REFRESH_TOKEN: str = env_value("TWITCH_REFRESH_TOKEN")
 BOT_NICK: str = env_value("TWITCH_NICK")
 CHANNEL: str = env_value("TWITCH_CHANNEL").lstrip("#")
-COMMAND_PREFIXES: tuple[str, ...] = tuple(
-    dict.fromkeys(
-        [part.strip() for part in (os.getenv("PREFIX") or "?").split(",") if part.strip()]
-        + ["?", "!"]
-    )
-)
-COMMAND_PREFIX: str = COMMAND_PREFIXES[0]
 TWITCH_BOT_ID: str = resolve_bot_id()
 
 bot: "CowBot | None" = None
+
+
+async def prefixes_for_message(_bot, _message) -> tuple[str, ...]:
+    return store.get_command_prefixes()
 
 
 def get_author_name(ctx: commands.Context) -> str:
@@ -144,7 +142,7 @@ class CowBot(commands.Bot):
             client_id=TWITCH_CLIENT_ID,
             client_secret=TWITCH_CLIENT_SECRET,
             bot_id=TWITCH_BOT_ID,
-            prefix=COMMAND_PREFIXES,
+            prefix=prefixes_for_message,
             scopes=Scopes(
                 user_read_chat=True,
                 user_write_chat=True,
@@ -172,6 +170,7 @@ class CowBot(commands.Bot):
             raise RuntimeError(f"Could not find Twitch channel '{CHANNEL}'. Check TWITCH_CHANNEL in your .env file.")
         self.channel_user = users[0]
         await self._subscribe_to_chat()
+        self._scheduler_task = asyncio.create_task(self._run_scheduled_messages())
 
     def get_context(self, payload, *, cls=None):
         return super().get_context(payload, cls=cls or CowContext)
@@ -212,13 +211,32 @@ class CowBot(commands.Bot):
         except Exception as exc:
             print(f"Failed to send channel message: {exc}")
 
+    async def _run_scheduled_messages(self) -> None:
+        while True:
+            try:
+                if self.channel_user is not None:
+                    for row in store.due_scheduled_messages():
+                        try:
+                            await self.channel_user.send_message(
+                                row["message"],
+                                sender=self.bot_id,
+                                token_for=self.bot_id,
+                            )
+                            store.mark_scheduled_sent(row["id"])
+                            print(f"Scheduled message sent | #{row['id']}")
+                        except Exception as exc:
+                            print(f"Failed to send scheduled message #{row['id']}: {exc}")
+            except Exception as exc:
+                print(f"Scheduled message error: {exc}")
+            await asyncio.sleep(15)
+
     async def event_ready(self):
         bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
-        prefixes = " ".join(COMMAND_PREFIXES)
+        prefixes = " ".join(store.get_command_prefixes())
         print(f"Logged in as | {bot_name}")
         print(f"Connected to channel | {CHANNEL}")
         print(f"Command prefixes | {prefixes}")
-        print("In stream chat type ?ping or !ping. The bot only replies while this process is running.")
+        print("Scheduled messages and prefixes can be changed from the dashboard.")
 
     async def event_message(self, payload) -> None:
         chatter = getattr(payload.chatter, "name", None) or "unknown"
@@ -238,7 +256,7 @@ class CowBot(commands.Bot):
             return
         if isinstance(error, commands.MissingRequiredArgument):
             command_name = getattr(ctx.command, "name", "command")
-            await ctx.send(f"Missing argument for {COMMAND_PREFIX}{command_name}.")
+            await ctx.send(f"Missing argument for {store.primary_prefix()}{command_name}.")
             return
         if isinstance(error, commands.BadArgument):
             await ctx.send("Invalid argument.")
@@ -277,7 +295,7 @@ class CowBot(commands.Bot):
             amount_value = current
         else:
             if not amount.isdigit():
-                await ctx.send(f"Usage: {COMMAND_PREFIX}gamble <amount|all>")
+                await ctx.send(f"Usage: {store.primary_prefix()}gamble <amount|all>")
                 return
             amount_value = int(amount)
 
@@ -305,7 +323,7 @@ class CowBot(commands.Bot):
         author_name = get_author_name(ctx)
         user = store.normalize_user(author_name)
         if not amount.isdigit():
-            await ctx.send(f"Usage: {COMMAND_PREFIX}roulette <amount>")
+            await ctx.send(f"Usage: {store.primary_prefix()}roulette <amount>")
             return
         wager = int(amount)
         current = store.get_points(user)
@@ -335,13 +353,13 @@ class CowBot(commands.Bot):
                 await ctx.send("Only mods and the broadcaster can start giveaways.")
                 return
             if not name:
-                await ctx.send(f"Usage: {COMMAND_PREFIX}giveaway start <name>")
+                await ctx.send(f"Usage: {store.primary_prefix()}giveaway start <name>")
                 return
             success, result = store.start_giveaway(name)
             if not success:
                 await ctx.send(result or "Could not start giveaway.")
                 return
-            await ctx.send(f"Giveaway '{name}' started! Type {COMMAND_PREFIX}giveaway enter to join.")
+            await ctx.send(f"Giveaway '{name}' started! Type {store.primary_prefix()}giveaway enter to join.")
         elif action == "enter":
             success, result = store.enter_giveaway(get_author_name(ctx))
             if not success:
@@ -359,8 +377,8 @@ class CowBot(commands.Bot):
                 await ctx.send(giveaway_name or "No giveaway is currently active.")
         else:
             await ctx.send(
-                f"Giveaway commands: {COMMAND_PREFIX}giveaway start <name>, "
-                f"{COMMAND_PREFIX}giveaway enter, {COMMAND_PREFIX}giveaway end"
+                f"Giveaway commands: {store.primary_prefix()}giveaway start <name>, "
+                f"{store.primary_prefix()}giveaway enter, {store.primary_prefix()}giveaway end"
             )
 
     @commands.command(name="quote")
@@ -383,7 +401,7 @@ class CowBot(commands.Bot):
             quote_text = quote_text[4:].strip()
 
         if "|" not in quote_text:
-            await ctx.send(f"Usage: {COMMAND_PREFIX}quote add <quote text> | <author>")
+            await ctx.send(f"Usage: {store.primary_prefix()}quote add <quote text> | <author>")
             return
 
         raw_quote, author = map(str.strip, quote_text.split("|", 1))
@@ -412,13 +430,13 @@ class CowBot(commands.Bot):
                 return
             if not args or "|" not in args:
                 await ctx.send(
-                    f"Usage: {COMMAND_PREFIX}poll start <poll name> | <question> | <option1>, <option2>, ..."
+                    f"Usage: {store.primary_prefix()}poll start <poll name> | <question> | <option1>, <option2>, ..."
                 )
                 return
             parts = [part.strip() for part in args.split("|")]
             if len(parts) < 3:
                 await ctx.send(
-                    f"Usage: {COMMAND_PREFIX}poll start <poll name> | <question> | <option1>, <option2>, ..."
+                    f"Usage: {store.primary_prefix()}poll start <poll name> | <question> | <option1>, <option2>, ..."
                 )
                 return
             name = parts[0]
@@ -435,7 +453,7 @@ class CowBot(commands.Bot):
                 await ctx.send("There is no active poll.")
                 return
             if not args:
-                await ctx.send(f"Usage: {COMMAND_PREFIX}poll vote <option>")
+                await ctx.send(f"Usage: {store.primary_prefix()}poll vote <option>")
                 return
             author_name = get_author_name(ctx)
             success, result = store.vote_poll(active_poll, author_name, args)
@@ -468,8 +486,8 @@ class CowBot(commands.Bot):
             await ctx.send(f"Poll '{active_poll}' ended. Results: {top}")
         else:
             await ctx.send(
-                f"Poll commands: {COMMAND_PREFIX}poll start <name> | <question> | <options>, "
-                f"{COMMAND_PREFIX}poll vote <option>, {COMMAND_PREFIX}poll end"
+                f"Poll commands: {store.primary_prefix()}poll start <name> | <question> | <options>, "
+                f"{store.primary_prefix()}poll vote <option>, {store.primary_prefix()}poll end"
             )
 
     @commands.command(name="raffle")
@@ -480,7 +498,7 @@ class CowBot(commands.Bot):
                 await ctx.send("Only mods and the broadcaster can start raffles.")
                 return
             if not args:
-                await ctx.send(f"Usage: {COMMAND_PREFIX}raffle start <name> | <cost>")
+                await ctx.send(f"Usage: {store.primary_prefix()}raffle start <name> | <cost>")
                 return
             if "|" in args:
                 name, cost_text = [part.strip() for part in args.split("|", 1)]
@@ -491,7 +509,7 @@ class CowBot(commands.Bot):
             else:
                 name = args.strip()
                 if not name:
-                    await ctx.send(f"Usage: {COMMAND_PREFIX}raffle start <name> | <cost>")
+                    await ctx.send(f"Usage: {store.primary_prefix()}raffle start <name> | <cost>")
                     return
                 cost = store.get_dashboard_settings()["default_raffle_cost"]
             success, error = store.create_raffle(name, cost)
@@ -499,7 +517,7 @@ class CowBot(commands.Bot):
                 await ctx.send(error or "Could not start raffle.")
                 return
             await ctx.send(
-                f"Raffle '{name}' started with entry cost {cost} points. Type {COMMAND_PREFIX}raffle enter."
+                f"Raffle '{name}' started with entry cost {cost} points. Type {store.primary_prefix()}raffle enter."
             )
         elif action == "enter":
             active_raffle = store.get_active_raffle_name()
@@ -528,8 +546,8 @@ class CowBot(commands.Bot):
             await ctx.send(f"Raffle '{active_raffle}' ended! The winner is {winner}.")
         else:
             await ctx.send(
-                f"Raffle commands: {COMMAND_PREFIX}raffle start <name> | <cost>, "
-                f"{COMMAND_PREFIX}raffle enter, {COMMAND_PREFIX}raffle end"
+                f"Raffle commands: {store.primary_prefix()}raffle start <name> | <cost>, "
+                f"{store.primary_prefix()}raffle enter, {store.primary_prefix()}raffle end"
             )
 
     @commands.command(name="transfer")
@@ -541,7 +559,7 @@ class CowBot(commands.Bot):
             await ctx.send("You cannot transfer points to yourself.")
             return
         if not amount.isdigit() or amount == "0":
-            await ctx.send(f"Usage: {COMMAND_PREFIX}transfer <user> <amount>")
+            await ctx.send(f"Usage: {store.primary_prefix()}transfer <user> <amount>")
             return
         amount_value = int(amount)
         spent, current = store.try_spend_points(from_user, amount_value)

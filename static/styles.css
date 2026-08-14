@@ -345,6 +345,30 @@ code {
   border-radius: inherit;
 }
 
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.actions button { width: auto; }
+
+.schedule-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.schedule-item {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.schedule-item.off { opacity: 0.62; }
+.schedule-item p { margin: 0; }
+.schedule-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 @media (max-width: 900px) {
   .stats, .layout, .form-grid { grid-template-columns: 1fr; }
   .card.wide { grid-column: auto; }

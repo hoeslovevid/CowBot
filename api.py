@@ -7,7 +7,6 @@ import store
 
 AnnounceFn = Callable[[str], Awaitable[None]]
 StatusFn = Callable[[], dict]
-COMMAND_PREFIX: str = os.getenv("PREFIX", "?") or "?"
 
 
 def _authorized(request: web.Request) -> bool:
@@ -43,6 +42,10 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             daily_min, daily_max = daily_max, daily_min
         starting_points = store.parse_non_negative_int(str(payload.get("starting_points", "")), 100)
         default_raffle_cost = max(store.parse_non_negative_int(str(payload.get("default_raffle_cost", "")), 50), 1)
+        if "prefixes" in payload:
+            success, error = store.set_command_prefixes(str(payload.get("prefixes") or ""))
+            if not success:
+                return web.json_response({"ok": False, "error": error}, status=400)
         store.set_setting("daily_min", str(daily_min))
         store.set_setting("daily_max", str(daily_max))
         store.set_setting("starting_points", str(starting_points))
@@ -88,7 +91,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             success, error = store.create_raffle(name, cost)
             if not success:
                 return web.json_response({"ok": False, "error": error}, status=400)
-            await announce(f"Raffle '{name}' started with entry cost {cost} points. Type {COMMAND_PREFIX}raffle enter.")
+            await announce(f"Raffle '{name}' started with entry cost {cost} points. Type {store.primary_prefix()}raffle enter.")
             return web.json_response({"ok": True})
         if action == "end":
             active_raffle = store.get_active_raffle_name()
@@ -112,7 +115,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             success, result = store.start_giveaway(name)
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
-            await announce(f"Giveaway '{result}' started! Type {COMMAND_PREFIX}giveaway enter to join.")
+            await announce(f"Giveaway '{result}' started! Type {store.primary_prefix()}giveaway enter to join.")
             return web.json_response({"ok": True, "name": result})
         if action == "end":
             winner, giveaway_name = store.finish_giveaway()
@@ -133,6 +136,41 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
         quote_id = store.add_quote(text, author, "dashboard")
         return web.json_response({"ok": True, "id": quote_id})
 
+    async def manage_schedule(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        payload = await request.json()
+        action = (payload.get("action") or "").lower()
+        if action == "create":
+            success, error = store.add_scheduled_message(
+                str(payload.get("message") or ""),
+                store.parse_non_negative_int(str(payload.get("interval_minutes", "")), 0),
+            )
+            if not success:
+                return web.json_response({"ok": False, "error": error}, status=400)
+            return web.json_response({"ok": True})
+        message_id = store.parse_non_negative_int(str(payload.get("id", "")), 0)
+        if message_id <= 0:
+            return web.json_response({"ok": False, "error": "Missing scheduled message."}, status=400)
+        if action == "delete":
+            if not store.delete_scheduled_message(message_id):
+                return web.json_response({"ok": False, "error": "Scheduled message not found."}, status=404)
+            return web.json_response({"ok": True})
+        if action == "toggle":
+            row = store.get_scheduled_message(message_id)
+            if not row:
+                return web.json_response({"ok": False, "error": "Scheduled message not found."}, status=404)
+            store.set_scheduled_enabled(message_id, not row["enabled"])
+            return web.json_response({"ok": True})
+        if action == "send":
+            row = store.get_scheduled_message(message_id)
+            if not row:
+                return web.json_response({"ok": False, "error": "Scheduled message not found."}, status=404)
+            await announce(row["message"])
+            store.mark_scheduled_sent(message_id)
+            return web.json_response({"ok": True})
+        return web.json_response({"ok": False, "error": "Unknown schedule action."}, status=400)
+
     app.router.add_get("/health", health)
     app.router.add_get("/api/status", status)
     app.router.add_post("/api/settings", update_settings)
@@ -140,6 +178,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     app.router.add_post("/api/raffle", manage_raffle)
     app.router.add_post("/api/giveaway", manage_giveaway)
     app.router.add_post("/api/quote", manage_quote)
+    app.router.add_post("/api/schedule", manage_schedule)
     return app
 
 

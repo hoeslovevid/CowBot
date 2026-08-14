@@ -113,6 +113,9 @@
           <label>Default raffle cost
             <input name="default_raffle_cost" type="number" min="1" value="{{ status.settings.default_raffle_cost }}">
           </label>
+          <label>Command prefixes
+            <input name="prefixes" value="{{ status.settings.prefixes }}" placeholder="?, !">
+          </label>
           <button type="submit" class="primary">Save settings</button>
         </form>
       </section>
@@ -201,7 +204,7 @@
       <section class="card">
         <div class="card-head">
           <h2>Quotes</h2>
-          <p>Saved for <code>?quote</code> in chat</p>
+          <p>Saved for <code>{{ status.settings.primary_prefix }}quote</code> in chat</p>
         </div>
         <form method="post" action="{{ url_for('manage_quote') }}" class="stack">
           <label>Quote
@@ -211,6 +214,38 @@
             <input name="quote_author" placeholder="Coach">
           </label>
           <button type="submit" class="primary">Add quote</button>
+        </form>
+      </section>
+
+      <section class="card wide">
+        <div class="card-head">
+          <h2>Scheduled messages</h2>
+          <p>Repeating chat lines while the bot is online</p>
+        </div>
+        <div class="schedule-list" data-status="scheduled_messages">
+          {% for row in status.scheduled_messages %}
+            <article class="schedule-item {% if not row.enabled %}off{% endif %}">
+              <p>{{ row.message }}</p>
+              <span class="schedule-meta">Every {{ row.interval_minutes }} min · {% if row.enabled %}On{% else %}Paused{% endif %}{% if row.last_sent_at %} · Last sent {{ row.last_sent_at.replace('T', ' ')[:16] }} UTC{% endif %}</span>
+              <form method="post" action="{{ url_for('manage_schedule') }}" class="actions">
+                <input type="hidden" name="id" value="{{ row.id }}">
+                <button type="submit" name="action" value="toggle" class="ghost">{% if row.enabled %}Pause{% else %}Resume{% endif %}</button>
+                <button type="submit" name="action" value="send" class="ghost">Send now</button>
+                <button type="submit" name="action" value="delete" class="ghost">Delete</button>
+              </form>
+            </article>
+          {% else %}
+            <p class="muted">No scheduled messages yet. Add one below and the bot will post it on a timer.</p>
+          {% endfor %}
+        </div>
+        <form method="post" action="{{ url_for('manage_schedule') }}" class="stack">
+          <label>Message
+            <input name="schedule_message" maxlength="500" placeholder="Follow for daily rewards with {{ status.settings.primary_prefix }}daily">
+          </label>
+          <label>Every (minutes)
+            <input name="interval_minutes" type="number" min="1" max="1440" value="15">
+          </label>
+          <button type="submit" name="action" value="create" class="primary">Add schedule</button>
         </form>
       </section>
     </div>

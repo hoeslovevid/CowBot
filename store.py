@@ -138,6 +138,21 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message TEXT NOT NULL,
+                interval_minutes INTEGER NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                last_sent_at TEXT
+            )
+            """
+        )
+        if not conn.execute("SELECT 1 FROM config WHERE key = 'command_prefixes'").fetchone():
+            env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?") or ("?",)
+            upsert_config(conn, "command_prefixes", ",".join(env_prefixes))
 
 
 def normalize_user(user_name: str | None) -> str:
@@ -485,16 +500,155 @@ def set_setting(key: str, value: str):
         upsert_config(conn, key, value)
 
 
+def parse_prefixes(raw: str | None) -> tuple[str, ...]:
+    prefixes: list[str] = []
+    for part in str(raw or "").replace(" ", ",").split(","):
+        prefix = part.strip()
+        if not prefix or prefix == "/" or len(prefix) > 3:
+            continue
+        if prefix not in prefixes:
+            prefixes.append(prefix)
+        if len(prefixes) >= 5:
+            break
+    return tuple(prefixes)
+
+
+def get_command_prefixes() -> tuple[str, ...]:
+    stored = parse_prefixes(get_setting("command_prefixes", ""))
+    if stored:
+        return stored
+    env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?")
+    return env_prefixes or ("?",)
+
+
+def primary_prefix() -> str:
+    return get_command_prefixes()[0]
+
+
+def set_command_prefixes(raw: str) -> tuple[bool, str | None]:
+    if "/" in [part.strip() for part in str(raw or "").replace(" ", ",").split(",") if part.strip()]:
+        return False, "Twitch intercepts / as its own commands. Use ?, !, or another character."
+    prefixes = parse_prefixes(raw)
+    if not prefixes:
+        return False, "Add at least one prefix, like ? or !"
+    set_setting("command_prefixes", ",".join(prefixes))
+    return True, None
+
+
+def list_scheduled_messages() -> list[dict]:
+    with db_session() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, message, interval_minutes, enabled, created_at, last_sent_at
+            FROM scheduled_messages
+            ORDER BY id DESC
+            """
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "message": row["message"],
+            "interval_minutes": row["interval_minutes"],
+            "enabled": bool(row["enabled"]),
+            "created_at": row["created_at"],
+            "last_sent_at": row["last_sent_at"],
+        }
+        for row in rows
+    ]
+
+
+def add_scheduled_message(message: str, interval_minutes: int) -> tuple[bool, str | None]:
+    text = (message or "").strip()
+    if not text:
+        return False, "Message cannot be empty."
+    if len(text) > 500:
+        return False, "Twitch messages cannot exceed 500 characters."
+    minutes = parse_non_negative_int(str(interval_minutes), 0)
+    if minutes < 1:
+        return False, "Interval must be at least 1 minute."
+    if minutes > 1440:
+        return False, "Interval cannot be more than 24 hours."
+    with db_session() as conn:
+        conn.execute(
+            """
+            INSERT INTO scheduled_messages (message, interval_minutes, enabled, created_at)
+            VALUES (?, ?, 1, ?)
+            """,
+            (text, minutes, utc_now().isoformat()),
+        )
+    return True, None
+
+
+def delete_scheduled_message(message_id: int) -> bool:
+    with db_session() as conn:
+        cursor = conn.execute("DELETE FROM scheduled_messages WHERE id = ?", (message_id,))
+        return cursor.rowcount > 0
+
+
+def set_scheduled_enabled(message_id: int, enabled: bool) -> bool:
+    with db_session() as conn:
+        cursor = conn.execute(
+            "UPDATE scheduled_messages SET enabled = ? WHERE id = ?",
+            (1 if enabled else 0, message_id),
+        )
+        return cursor.rowcount > 0
+
+
+def get_scheduled_message(message_id: int) -> dict | None:
+    with db_session() as conn:
+        row = conn.execute(
+            """
+            SELECT id, message, interval_minutes, enabled, created_at, last_sent_at
+            FROM scheduled_messages
+            WHERE id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "message": row["message"],
+        "interval_minutes": row["interval_minutes"],
+        "enabled": bool(row["enabled"]),
+        "created_at": row["created_at"],
+        "last_sent_at": row["last_sent_at"],
+    }
+
+
+def due_scheduled_messages() -> list[dict]:
+    now = utc_now()
+    due: list[dict] = []
+    for row in list_scheduled_messages():
+        if not row["enabled"]:
+            continue
+        anchor = parse_iso(row["last_sent_at"] or row["created_at"])
+        if now - anchor >= timedelta(minutes=row["interval_minutes"]):
+            due.append(row)
+    return due
+
+
+def mark_scheduled_sent(message_id: int) -> None:
+    with db_session() as conn:
+        conn.execute(
+            "UPDATE scheduled_messages SET last_sent_at = ? WHERE id = ?",
+            (utc_now().isoformat(), message_id),
+        )
+
+
 def get_dashboard_settings() -> dict:
     daily_min = parse_non_negative_int(get_setting("daily_min", "25"), 25)
     daily_max = parse_non_negative_int(get_setting("daily_max", "100"), 100)
     if daily_min > daily_max:
         daily_min, daily_max = daily_max, daily_min
+    prefixes = get_command_prefixes()
     return {
         "daily_min": daily_min,
         "daily_max": daily_max,
         "starting_points": parse_non_negative_int(get_setting("starting_points", "100"), 100),
         "default_raffle_cost": max(parse_non_negative_int(get_setting("default_raffle_cost", "50"), 50), 1),
+        "prefixes": ",".join(prefixes),
+        "primary_prefix": prefixes[0],
     }
 
 
@@ -558,4 +712,5 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
             for row in get_leaderboard(10)
         ],
         "settings": get_dashboard_settings(),
+        "scheduled_messages": list_scheduled_messages(),
     }

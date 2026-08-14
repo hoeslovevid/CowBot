@@ -38,7 +38,10 @@ EMPTY_STATUS = {
         "daily_max": 100,
         "starting_points": 100,
         "default_raffle_cost": 50,
+        "prefixes": "?,!",
+        "primary_prefix": "?",
     },
+    "scheduled_messages": [],
 }
 
 
@@ -112,6 +115,7 @@ def update_settings():
         "daily_max": request.form.get("daily_max"),
         "starting_points": request.form.get("starting_points"),
         "default_raffle_cost": request.form.get("default_raffle_cost"),
+        "prefixes": request.form.get("prefixes"),
     })
     flash(error or "Settings saved.", "error" if error else "success")
     return redirect(url_for("dashboard"))
@@ -172,6 +176,32 @@ def manage_quote():
         "author": request.form.get("quote_author") or "Unknown",
     })
     flash(error or "Quote added.", "error" if error else "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/schedule", methods=["POST"])
+def manage_schedule():
+    action = request.form.get("action")
+    if action == "create":
+        success, error = post_bot("/api/schedule", {
+            "action": "create",
+            "message": request.form.get("schedule_message"),
+            "interval_minutes": request.form.get("interval_minutes"),
+        })
+        flash(error or "Scheduled message added.", "error" if error else "success")
+    else:
+        success, error = post_bot("/api/schedule", {
+            "action": action,
+            "id": request.form.get("id"),
+        })
+        if error:
+            flash(error, "error")
+        elif action == "send":
+            flash("Message sent to chat.", "success")
+        elif action == "delete":
+            flash("Scheduled message removed.", "success")
+        else:
+            flash("Scheduled message updated.", "success")
     return redirect(url_for("dashboard"))
 
 
