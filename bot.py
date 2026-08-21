@@ -27,13 +27,12 @@ def env_value(key: str) -> str:
 def load_environment() -> None:
     env_path = find_dotenv()
     if env_path:
-        load_dotenv(env_path)
+        load_dotenv(env_path, override=True)
 
     missing = [
         key for key in (
             "TWITCH_CLIENT_ID",
             "TWITCH_CLIENT_SECRET",
-            "TWITCH_TOKEN",
             "TWITCH_NICK",
             "TWITCH_CHANNEL",
         ) if not env_value(key)
@@ -73,6 +72,33 @@ def fetch_twitch_user_id(login: str) -> str | None:
     if not users:
         return None
     return str(users[0]["id"])
+
+
+def upsert_env_value(path: str, key: str, value: str) -> None:
+    lines: list[str] = []
+    found = False
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith(f"{key}="):
+                lines.append(f"{key}={value}\n")
+                found = True
+            else:
+                lines.append(line)
+    if not found:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append(f"{key}={value}\n")
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.writelines(lines)
+
+
+def persist_twitch_tokens(access_token: str, refresh_token: str) -> None:
+    env_path = find_dotenv() or os.path.join(os.getcwd(), ".env")
+    upsert_env_value(env_path, "TWITCH_TOKEN", access_token)
+    upsert_env_value(env_path, "TWITCH_REFRESH_TOKEN", refresh_token)
+    os.environ["TWITCH_TOKEN"] = access_token
+    os.environ["TWITCH_REFRESH_TOKEN"] = refresh_token
+    print(f"Saved new Twitch tokens to {env_path}")
 
 
 def resolve_bot_id() -> str:
@@ -585,18 +611,20 @@ class CowBot(commands.Bot):
         api_app = create_api_app(get_status=self.api_status, announce=self.send_channel_message)
         await start_api_server(api_app)
 
-        if not BOT_TOKEN:
-            raise RuntimeError(
-                "TWITCH_TOKEN is missing. EventSub chat needs the SimpleCowBot user token. "
-                "Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN from local .env into this Railway service."
+        if BOT_TOKEN:
+            try:
+                await self.add_token(BOT_TOKEN, BOT_REFRESH_TOKEN)
+            except Exception as exc:
+                print(f"Saved Twitch token is invalid: {exc}")
+                print(
+                    "Open http://localhost:4343/oauth while logged into SimpleCowBot to authorize again. "
+                    "The Twitch app redirect URL must be http://localhost:4343/oauth/callback"
+                )
+        else:
+            print(
+                "TWITCH_TOKEN is missing. Open http://localhost:4343/oauth while logged into SimpleCowBot. "
+                "The Twitch app redirect URL must be http://localhost:4343/oauth/callback"
             )
-        try:
-            await self.add_token(BOT_TOKEN, BOT_REFRESH_TOKEN)
-        except Exception as exc:
-            raise RuntimeError(
-                f"Could not use TWITCH_TOKEN: {exc}. "
-                "Set TWITCH_TOKEN and TWITCH_REFRESH_TOKEN on Railway from .tio.tokens.json or local .env."
-            ) from exc
 
         users = await self.fetch_users(logins=[CHANNEL.lower()])
         if not users:
@@ -648,7 +676,15 @@ class CowBot(commands.Bot):
                 await self._subscribe_to_chat()
 
     async def event_oauth_authorized(self, payload) -> None:
-        await self.add_token(payload["access_token"], payload["refresh_token"])
+        access = payload["access_token"] if isinstance(payload, dict) else payload.access_token
+        refresh = payload["refresh_token"] if isinstance(payload, dict) else payload.refresh_token
+        await self.add_token(access, refresh)
+        persist_twitch_tokens(access, refresh)
+        print("SimpleCowBot authorized. Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN onto Railway too.")
+        if self.channel_user is None:
+            users = await self.fetch_users(logins=[CHANNEL.lower()])
+            if users:
+                self.channel_user = users[0]
         await self._subscribe_to_chat()
 
     async def send_channel_message(self, content: str) -> None:
