@@ -313,6 +313,31 @@ function setupTabs() {
   show(localStorage.getItem("cowbot-tab") || "live");
 }
 
+function currentTheme() {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+function applyTheme(theme) {
+  const next = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem("cowbot-theme", next);
+  const toggle = document.getElementById("theme-toggle");
+  if (toggle) {
+    const toLight = next === "dark";
+    toggle.setAttribute("aria-label", toLight ? "Switch to light mode" : "Switch to dark mode");
+    toggle.title = toLight ? "Light mode" : "Dark mode";
+  }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = next === "light" ? "#f4f4f5" : "#09090b";
+}
+
+function setupTheme() {
+  applyTheme(currentTheme());
+  document.getElementById("theme-toggle")?.addEventListener("click", () => {
+    applyTheme(currentTheme() === "dark" ? "light" : "dark");
+  });
+}
+
 function setupForms() {
   document.querySelectorAll(".js-form").forEach((form) => {
     form.addEventListener("submit", async (event) => {
@@ -564,6 +589,7 @@ function setupOverlayCopy() {
 }
 
 setupTabs();
+setupTheme();
 setupForms();
 setupInstantToggles();
 setupCommandEditor();
