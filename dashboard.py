@@ -29,6 +29,7 @@ EMPTY_STATUS = {
     "bot_name": "CowBot",
     "channel": "offline",
     "uptime": "Waiting for bot",
+    "stream_live": False,
     "active_poll": None,
     "poll_question": None,
     "poll_results": [],
@@ -377,6 +378,8 @@ def manage_commands():
             "action": "create",
             "name": data.get("command_name"),
             "response": data.get("command_response"),
+            "aliases": data.get("command_aliases"),
+            "cooldown_seconds": data.get("command_cooldown"),
         })
         return finish(success, "Custom command saved.", error)
     success, error = post_bot("/api/commands", {

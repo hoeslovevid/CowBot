@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=3">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=4">
 </head>
 <body data-prefix="{{ status.settings.primary_prefix }}">
   <div class="spots" aria-hidden="true"></div>
@@ -182,7 +182,7 @@
         <section class="card wide{% if not status.features.custom_commands.enabled %} is-off{% endif %}" data-module-card="custom_commands">
           <div class="card-head">
             <h2>Custom commands</h2>
-            <p>Use <code>{user}</code> for the chatter’s name.</p>
+            <p>Use <code>{user}</code>, <code>{channel}</code>, <code>{points}</code>, <code>{count}</code>, <code>{prefix}</code>, and <code>{target}</code>.</p>
           </div>
           <div class="schedule-list" data-live="custom_commands"></div>
           <form class="stack js-form" data-action="{{ url_for('manage_commands') }}">
@@ -190,8 +190,16 @@
               <label>Command
                 <input name="command_name" maxlength="32" placeholder="discord">
               </label>
-              <label>Reply
+              <label>Aliases
+                <input name="command_aliases" maxlength="120" placeholder="disc, discordlink">
+                <span class="field-hint">Optional extra names, comma-separated.</span>
+              </label>
+              <label class="span-2">Reply
                 <input name="command_response" maxlength="500" placeholder="Join the Discord: https://discord.gg/example">
+              </label>
+              <label>Cooldown (seconds)
+                <input name="command_cooldown" type="number" min="0" max="3600" value="0">
+                <span class="field-hint">0 means no cooldown. Mods skip it.</span>
               </label>
             </div>
             <button type="submit" name="action" value="create" class="primary">Save command</button>
@@ -201,7 +209,7 @@
         <section class="card wide{% if not status.features.scheduled_messages.enabled %} is-off{% endif %}" data-module-card="scheduled_messages">
           <div class="card-head">
             <h2>Scheduled messages</h2>
-            <p>Repeating chat lines while the bot is online</p>
+            <p>Repeating chat lines while the stream is live. Send now still works anytime.</p>
           </div>
           <div class="schedule-list" data-live="scheduled_messages"></div>
           <form class="stack js-form" data-action="{{ url_for('manage_schedule') }}">
@@ -313,7 +321,7 @@
       </div>
     </div>
   </div>
-  <script src="{{ url_for('static', filename='wheel.js') }}?v=3"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=3"></script>
+  <script src="{{ url_for('static', filename='wheel.js') }}?v=4"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=4"></script>
 </body>
 </html>

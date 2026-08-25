@@ -121,26 +121,37 @@ function renderCustomCommands(rows) {
     host.innerHTML = `<p class="muted">No custom commands yet. Add one below, for example <code>${escapeHtml(prefix())}discord</code>.</p>`;
     return;
   }
-  host.innerHTML = rows.map((row) => `
+  host.innerHTML = rows.map((row) => {
+    const aliases = (row.aliases || []).map((name) => `${prefix()}${name}`).join(", ");
+    const extras = [
+      aliases ? `also ${aliases}` : "",
+      row.cooldown_seconds ? `${row.cooldown_seconds}s cooldown` : "",
+      row.use_count ? `used ${row.use_count}` : "",
+    ].filter(Boolean).join(" · ");
+    return `
     <article class="schedule-item ${row.enabled ? "" : "off"}">
       <p><code>${escapeHtml(prefix())}${escapeHtml(row.name)}</code></p>
-      <span class="schedule-meta">${escapeHtml(row.response)}</span>
+      <span class="schedule-meta">${escapeHtml(row.response)}${extras ? ` · ${escapeHtml(extras)}` : ""}</span>
       <div class="actions">
         <button type="button" class="ghost js-item" data-url="/commands" data-id="${row.id}" data-action="toggle">${row.enabled ? "Pause" : "Resume"}</button>
         <button type="button" class="ghost js-item" data-url="/commands" data-id="${row.id}" data-action="delete" data-confirm="Delete ${prefix()}${row.name}?">Delete</button>
       </div>
     </article>
-  `).join("");
+  `;
+  }).join("");
 }
 
-function renderScheduled(rows) {
+function renderScheduled(rows, streamLive = false) {
   const host = document.querySelector("[data-live='scheduled_messages']");
   if (!host) return;
   if (!rows || !rows.length) {
-    host.innerHTML = `<p class="muted">No scheduled messages yet. Add one below and the bot will post it on a timer.</p>`;
+    host.innerHTML = `<p class="muted">No scheduled messages yet. They post in chat while the stream is live.</p>`;
     return;
   }
-  host.innerHTML = rows.map((row) => {
+  const pauseNote = streamLive
+    ? ""
+    : `<p class="muted">Stream is offline. Timers are paused until you go live. Send now still posts immediately.</p>`;
+  host.innerHTML = pauseNote + rows.map((row) => {
     const last = row.last_sent_at ? ` · Last sent ${String(row.last_sent_at).replace("T", " ").slice(0, 16)} UTC` : "";
     return `
       <article class="schedule-item ${row.enabled ? "" : "off"}">
@@ -212,7 +223,7 @@ function applyStatus(status, { commands = false } = {}) {
   renderPoll(status);
   renderGiveaway(status);
   renderCustomCommands(status.custom_commands);
-  renderScheduled(status.scheduled_messages);
+  renderScheduled(status.scheduled_messages, Boolean(status.stream_live));
   applyModuleCards(status.features);
   if (commands || forceCommandRender) {
     renderBuiltinCommands(status.builtin_command_groups);

@@ -46,6 +46,15 @@ def format_uptime(delta: timedelta) -> str:
     return f"{hours}h {minutes}m {seconds}s"
 
 
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    if column not in _column_names(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def get_db_connection():
     db_dir = os.path.dirname(os.path.abspath(DB_PATH))
     if db_dir:
@@ -193,6 +202,10 @@ def init_db():
             )
             """
         )
+        _ensure_column(conn, "custom_commands", "aliases", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "custom_commands", "cooldown_seconds", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "custom_commands", "use_count", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "custom_commands", "last_used_at", "TEXT")
         if not conn.execute("SELECT 1 FROM config WHERE key = 'command_prefixes'").fetchone():
             env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?,!") or ("?", "!")
             upsert_config(conn, "command_prefixes", ",".join(env_prefixes))
@@ -795,12 +808,12 @@ FEATURE_MODULES = {
     },
     "custom_commands": {
         "label": "Custom commands",
-        "blurb": "Replies you create on this dashboard",
+        "blurb": "Replies you create, with aliases, cooldowns, and placeholders",
         "off_message": "Custom commands are currently disabled.",
     },
     "scheduled_messages": {
         "label": "Scheduled messages",
-        "blurb": "Repeating chat lines while the bot is online",
+        "blurb": "Repeating chat lines while the stream is live",
         "off_message": "Scheduled messages are currently disabled.",
     },
 }
@@ -1037,6 +1050,11 @@ def mark_scheduled_sent(message_id: int) -> None:
 
 
 RESERVED_COMMANDS = frozenset(BUILTIN_COMMANDS)
+CUSTOM_COMMAND_COLUMNS = (
+    "id, name, response, enabled, created_at, aliases, cooldown_seconds, use_count, last_used_at"
+)
+MAX_COMMAND_ALIASES = 8
+MAX_COMMAND_COOLDOWN = 3600
 
 
 def normalize_command_name(raw: str | None) -> str:
@@ -1050,24 +1068,44 @@ def normalize_command_name(raw: str | None) -> str:
     return cleaned[:32]
 
 
+def parse_command_aliases(raw: str | None) -> list[str]:
+    names: list[str] = []
+    for part in str(raw or "").replace(";", ",").split(","):
+        name = normalize_command_name(part)
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= MAX_COMMAND_ALIASES:
+            break
+    return names
+
+
+def format_command_aliases(aliases: list[str]) -> str:
+    return ",".join(aliases)
+
+
 def _custom_command_row(row: sqlite3.Row) -> dict:
+    aliases = parse_command_aliases(row["aliases"] if "aliases" in row.keys() else "")
+    cooldown = row["cooldown_seconds"] if "cooldown_seconds" in row.keys() else 0
+    use_count = row["use_count"] if "use_count" in row.keys() else 0
+    last_used = row["last_used_at"] if "last_used_at" in row.keys() else None
     return {
         "id": row["id"],
         "name": row["name"],
         "response": row["response"],
         "enabled": bool(row["enabled"]),
         "created_at": row["created_at"],
+        "aliases": aliases,
+        "aliases_text": ", ".join(aliases),
+        "cooldown_seconds": int(cooldown or 0),
+        "use_count": int(use_count or 0),
+        "last_used_at": last_used,
     }
 
 
 def list_custom_commands() -> list[dict]:
     with db_session() as conn:
         rows = conn.execute(
-            """
-            SELECT id, name, response, enabled, created_at
-            FROM custom_commands
-            ORDER BY name
-            """
+            f"SELECT {CUSTOM_COMMAND_COLUMNS} FROM custom_commands ORDER BY name"
         ).fetchall()
     return [_custom_command_row(row) for row in rows]
 
@@ -1076,19 +1114,30 @@ def get_custom_command(name: str) -> dict | None:
     command_name = normalize_command_name(name)
     if not command_name:
         return None
-    with db_session() as conn:
-        row = conn.execute(
-            """
-            SELECT id, name, response, enabled, created_at
-            FROM custom_commands
-            WHERE name = ? AND enabled = 1
-            """,
-            (command_name,),
-        ).fetchone()
-    return _custom_command_row(row) if row else None
+    for command in list_custom_commands():
+        if not command["enabled"]:
+            continue
+        if command["name"] == command_name or command_name in command["aliases"]:
+            return command
+    return None
 
 
-def upsert_custom_command(name: str, response: str) -> tuple[bool, str | None]:
+def _taken_command_names(exclude_id: int | None = None) -> set[str]:
+    taken = set(RESERVED_COMMANDS)
+    for command in list_custom_commands():
+        if exclude_id is not None and command["id"] == exclude_id:
+            continue
+        taken.add(command["name"])
+        taken.update(command["aliases"])
+    return taken
+
+
+def upsert_custom_command(
+    name: str,
+    response: str,
+    aliases: str | None = None,
+    cooldown_seconds: int | str | None = 0,
+) -> tuple[bool, str | None]:
     command_name = normalize_command_name(name)
     if not command_name:
         return False, "Command name cannot be empty."
@@ -1099,14 +1148,43 @@ def upsert_custom_command(name: str, response: str) -> tuple[bool, str | None]:
         return False, "Command response cannot be empty."
     if len(text) > 500:
         return False, "Twitch messages cannot exceed 500 characters."
+    alias_names = [alias for alias in parse_command_aliases(aliases) if alias != command_name]
+    cooldown = parse_non_negative_int(str(cooldown_seconds if cooldown_seconds is not None else 0), 0)
+    if cooldown > MAX_COMMAND_COOLDOWN:
+        return False, "Cooldown cannot be more than 1 hour."
+    existing = None
+    for command in list_custom_commands():
+        if command["name"] == command_name:
+            existing = command
+            break
+    taken = _taken_command_names(existing["id"] if existing else None)
+    if existing is None and command_name in taken:
+        return False, f"'{command_name}' is already used as a command or alias."
+    for alias in alias_names:
+        if alias in RESERVED_COMMANDS:
+            return False, f"'{alias}' is a built-in command and cannot be an alias."
+        if alias in taken:
+            return False, f"'{alias}' is already used as a command or alias."
     with db_session() as conn:
         conn.execute(
             """
-            INSERT INTO custom_commands (name, response, enabled, created_at)
-            VALUES (?, ?, 1, ?)
-            ON CONFLICT(name) DO UPDATE SET response = excluded.response, enabled = 1
+            INSERT INTO custom_commands (
+                name, response, enabled, created_at, aliases, cooldown_seconds
+            )
+            VALUES (?, ?, 1, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                response = excluded.response,
+                enabled = 1,
+                aliases = excluded.aliases,
+                cooldown_seconds = excluded.cooldown_seconds
             """,
-            (command_name, text, utc_now().isoformat()),
+            (
+                command_name,
+                text,
+                utc_now().isoformat(),
+                format_command_aliases(alias_names),
+                cooldown,
+            ),
         )
     return True, command_name
 
@@ -1129,21 +1207,53 @@ def set_custom_command_enabled(command_id: int, enabled: bool) -> bool:
 def get_custom_command_by_id(command_id: int) -> dict | None:
     with db_session() as conn:
         row = conn.execute(
-            """
-            SELECT id, name, response, enabled, created_at
-            FROM custom_commands
-            WHERE id = ?
-            """,
+            f"SELECT {CUSTOM_COMMAND_COLUMNS} FROM custom_commands WHERE id = ?",
             (command_id,),
         ).fetchone()
     return _custom_command_row(row) if row else None
 
 
-def render_custom_command(response: str, *, user: str) -> str:
+def use_custom_command(name: str, *, bypass_cooldown: bool = False) -> dict | None:
+    command = get_custom_command(name)
+    if not command:
+        return None
+    if command["cooldown_seconds"] > 0 and not bypass_cooldown and command["last_used_at"]:
+        elapsed = (utc_now() - parse_iso(command["last_used_at"])).total_seconds()
+        if elapsed < command["cooldown_seconds"]:
+            return None
+    with db_session() as conn:
+        conn.execute(
+            """
+            UPDATE custom_commands
+            SET use_count = use_count + 1, last_used_at = ?
+            WHERE id = ?
+            """,
+            (utc_now().isoformat(), command["id"]),
+        )
+        row = conn.execute(
+            f"SELECT {CUSTOM_COMMAND_COLUMNS} FROM custom_commands WHERE id = ?",
+            (command["id"],),
+        ).fetchone()
+    return _custom_command_row(row) if row else None
+
+
+def render_custom_command(
+    response: str,
+    *,
+    user: str,
+    channel: str = "",
+    points: int = 0,
+    count: int = 0,
+    target: str | None = None,
+) -> str:
     text = (
         (response or "")
         .replace("{user}", user)
         .replace("{prefix}", primary_prefix())
+        .replace("{channel}", channel or "")
+        .replace("{points}", str(points))
+        .replace("{count}", str(count))
+        .replace("{target}", (target or user).lstrip("@") or user)
     ).strip()
     return text[:500]
 
@@ -1223,7 +1333,7 @@ def try_claim_daily(user_name: str) -> tuple[bool, int, int]:
         return True, earned, current["points"]
 
 
-def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool) -> dict:
+def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool, stream_live: bool = False) -> dict:
     poll_name = get_active_poll_name()
     raffle_name = get_active_raffle_name()
     poll_results = [
@@ -1234,6 +1344,7 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
     return {
         "ok": True,
         "connected": connected,
+        "stream_live": stream_live,
         "bot_name": bot_name,
         "channel": channel,
         "uptime": uptime,

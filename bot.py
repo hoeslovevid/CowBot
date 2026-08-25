@@ -1,6 +1,7 @@
 import os
 import random
 import asyncio
+import time
 
 from dotenv import load_dotenv, find_dotenv
 from twitchio import Scopes, eventsub
@@ -144,6 +145,21 @@ def get_author_mention(ctx: commands.Context) -> str:
         return mention
     name = get_author_name(ctx)
     return f"@{name}" if name != "Unknown" else name
+
+
+def get_invoked_argument(ctx: commands.Context, invoked: str) -> str:
+    payload = getattr(ctx, "_payload", None) or getattr(ctx, "message", None)
+    text = str(getattr(payload, "text", None) or getattr(ctx, "content", "") or "").strip()
+    for prefix in store.get_command_prefixes():
+        if text.startswith(prefix):
+            text = text[len(prefix):].lstrip()
+            break
+    invoked_name = str(invoked or "").strip()
+    if invoked_name and text.lower().startswith(invoked_name.lower()):
+        text = text[len(invoked_name):].lstrip()
+    if not text:
+        return ""
+    return text.split()[0].lstrip("@")
 
 
 def _badge_set_ids(source) -> set[str]:
@@ -615,6 +631,9 @@ class CowBot(commands.Bot):
         self.start_time = store.utc_now()
         self.channel_user = None
         self._chat_subscribed = False
+        self._stream_live = False
+        self._live_checked_at = 0.0
+        self._live_status_logged = False
 
     async def setup_hook(self) -> None:
         store.init_db()
@@ -657,7 +676,34 @@ class CowBot(commands.Bot):
             bot_name=bot_name or BOT_NICK,
             channel=CHANNEL,
             connected=self.channel_user is not None,
+            stream_live=self._stream_live,
         )
+
+    async def refresh_stream_live(self) -> bool:
+        if self.channel_user is None:
+            self._stream_live = False
+            return False
+        now = time.monotonic()
+        if self._live_checked_at and now - self._live_checked_at < 45:
+            return self._stream_live
+        previous = self._stream_live
+        try:
+            live = False
+            async for _stream in self.fetch_streams(
+                user_ids=[self.channel_user.id],
+                first=1,
+                max_results=1,
+            ):
+                live = True
+                break
+            self._stream_live = live
+        except Exception as exc:
+            print(f"Stream live check failed: {exc}")
+        self._live_checked_at = now
+        if not self._live_status_logged or previous != self._stream_live:
+            print(f"Channel stream | {'live' if self._stream_live else 'offline'}")
+            self._live_status_logged = True
+        return self._stream_live
 
     async def _subscribe_to_chat(self) -> None:
         if self._chat_subscribed or self.channel_user is None:
@@ -708,8 +754,15 @@ class CowBot(commands.Bot):
     async def _run_scheduled_messages(self) -> None:
         while True:
             try:
-                if self.channel_user is not None and store.is_feature_enabled("scheduled_messages"):
-                    for row in store.due_scheduled_messages():
+                live = await self.refresh_stream_live()
+                if (
+                    live
+                    and self.channel_user is not None
+                    and store.is_feature_enabled("scheduled_messages")
+                ):
+                    due = store.due_scheduled_messages()
+                    if due:
+                        row = due[0]
                         try:
                             await self.channel_user.send_message(
                                 row["message"],
@@ -730,7 +783,8 @@ class CowBot(commands.Bot):
         print(f"Logged in as | {bot_name}")
         print(f"Connected to channel | {CHANNEL}")
         print(f"Command prefixes | {prefixes}")
-        print("Scheduled messages and prefixes can be changed from the dashboard.")
+        print("Scheduled messages post while the stream is live. Prefixes can be changed from the dashboard.")
+        await self.refresh_stream_live()
 
     async def event_message(self, payload) -> None:
         chatter = getattr(payload.chatter, "name", None) or "unknown"
@@ -748,14 +802,24 @@ class CowBot(commands.Bot):
         ctx = payload.context
         if isinstance(error, commands.CommandNotFound):
             invoked = getattr(ctx, "invoked_with", None) or getattr(ctx, "_invoked_with", "unknown")
-            custom = store.get_custom_command(str(invoked))
-            if custom:
+            if store.get_custom_command(str(invoked)):
                 if not store.is_feature_enabled("custom_commands"):
                     await ctx.send(store.feature_off_message("custom_commands"))
                     return
+                custom = store.use_custom_command(
+                    str(invoked),
+                    bypass_cooldown=is_mod_or_broadcaster(ctx),
+                )
+                if not custom:
+                    return
+                user = get_author_name(ctx)
                 reply = store.render_custom_command(
                     custom["response"],
-                    user=get_author_name(ctx),
+                    user=user,
+                    channel=CHANNEL,
+                    points=store.get_points(user),
+                    count=custom["use_count"],
+                    target=get_invoked_argument(ctx, str(invoked)) or user,
                 )
                 if reply:
                     await ctx.send(reply)

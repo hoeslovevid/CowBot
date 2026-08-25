@@ -265,6 +265,8 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             success, result = store.upsert_custom_command(
                 str(payload.get("name") or ""),
                 str(payload.get("response") or ""),
+                str(payload.get("aliases") or ""),
+                payload.get("cooldown_seconds"),
             )
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
