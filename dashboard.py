@@ -279,6 +279,9 @@ def manage_giveaway():
             "name": data.get("giveaway_name"),
         })
         return finish(success, "Giveaway started in chat.", error)
+    if action == "cancel":
+        success, error = post_bot("/api/giveaway", {"action": "cancel"})
+        return finish(success, "Giveaway cancelled. No winner was chosen.", error)
     success, error = post_bot("/api/giveaway", {"action": "end"})
     return finish(success, "Giveaway ended and winner posted to chat.", error)
 

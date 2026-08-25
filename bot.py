@@ -330,6 +330,15 @@ class CowCommands(commands.Component):
                 await ctx.send(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
             else:
                 await ctx.send(giveaway_name or "No giveaway is currently active.")
+        elif action == "cancel":
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can cancel giveaways.")
+                return
+            success, result = store.cancel_giveaway()
+            if not success:
+                await ctx.send(result or "No giveaway is currently active.")
+                return
+            await ctx.send(f"Giveaway '{result}' was cancelled. No winner was chosen.")
         elif action == "reroll":
             if not is_mod_or_broadcaster(ctx):
                 await ctx.send("Only mods and the broadcaster can reroll giveaways.")
@@ -347,7 +356,8 @@ class CowCommands(commands.Component):
             await ctx.send(
                 f"Giveaway commands: {store.primary_prefix()}giveaway, "
                 f"{store.primary_prefix()}giveaway start <name>, "
-                f"{store.primary_prefix()}giveaway end, {store.primary_prefix()}giveaway reroll"
+                f"{store.primary_prefix()}giveaway end, {store.primary_prefix()}giveaway cancel, "
+                f"{store.primary_prefix()}giveaway reroll"
             )
 
     @commands.command(name="quote")

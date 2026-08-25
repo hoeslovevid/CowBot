@@ -627,6 +627,22 @@ def finish_giveaway() -> tuple[str | None, str | None]:
     return winner, giveaway_name
 
 
+def cancel_giveaway() -> tuple[bool, str | None]:
+    with db_session() as conn:
+        active = get_config_value(conn, "active_giveaway")
+        pending_name = get_config_value(conn, "pending_giveaway_name")
+        name = active or pending_name
+        if not name:
+            return False, "No giveaway is currently active."
+        conn.execute("DELETE FROM giveaway_entries WHERE giveaway_name = ?", (name,))
+        upsert_config(conn, "active_giveaway", "")
+        upsert_config(conn, "pending_giveaway_winner", "")
+        upsert_config(conn, "pending_giveaway_name", "")
+        upsert_config(conn, "pending_giveaway_reroll", "")
+        upsert_config(conn, "overlay_giveaway_spin", "")
+    return True, name
+
+
 def publish_overlay_spin(winner: str, name: str, entries: list[str], *, reroll: bool = False) -> dict:
     payload = {
         "id": uuid.uuid4().hex,

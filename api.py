@@ -191,6 +191,12 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
                 await announce(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
                 return web.json_response({"ok": True, "winner": winner, "name": giveaway_name})
             return web.json_response({"ok": False, "error": giveaway_name or "No giveaway is currently active."}, status=400)
+        if action == "cancel":
+            success, result = store.cancel_giveaway()
+            if not success:
+                return web.json_response({"ok": False, "error": result or "No giveaway is currently active."}, status=400)
+            await announce(f"Giveaway '{result}' was cancelled. No winner was chosen.")
+            return web.json_response({"ok": True, "name": result})
         return web.json_response({"ok": False, "error": "Unknown giveaway action."}, status=400)
 
     async def giveaway_overlay(request: web.Request) -> web.Response:
