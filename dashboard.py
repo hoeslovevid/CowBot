@@ -373,15 +373,17 @@ def manage_schedule():
 def manage_commands():
     data = posted()
     action = data.get("action")
-    if action == "create":
+    if action in {"create", "update"}:
         success, error = post_bot("/api/commands", {
-            "action": "create",
+            "action": action,
+            "id": data.get("command_id") or data.get("id"),
             "name": data.get("command_name"),
             "response": data.get("command_response"),
             "aliases": data.get("command_aliases"),
             "cooldown_seconds": data.get("command_cooldown"),
         })
-        return finish(success, "Custom command saved.", error)
+        message = "Custom command updated." if action == "update" else "Custom command saved."
+        return finish(success, message, error)
     success, error = post_bot("/api/commands", {
         "action": action,
         "id": data.get("id"),

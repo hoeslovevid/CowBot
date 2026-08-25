@@ -114,25 +114,77 @@ function renderGiveaway(status) {
   box.innerHTML = `<p class="live-title">${escapeHtml(status.active_giveaway)}</p><p class="muted">${locked}</p>${list}`;
 }
 
+let customCommands = [];
+let editingCommandId = "";
+
+function commandForm() {
+  return document.getElementById("custom-command-form");
+}
+
+function resetCommandForm() {
+  const form = commandForm();
+  if (!form) return;
+  editingCommandId = "";
+  form.querySelector("[name='command_id']").value = "";
+  form.querySelector("[name='command_name']").value = "";
+  form.querySelector("[name='command_aliases']").value = "";
+  form.querySelector("[name='command_response']").value = "";
+  form.querySelector("[name='command_cooldown']").value = "0";
+  const save = document.getElementById("custom-command-save");
+  const cancel = document.getElementById("custom-command-cancel");
+  if (save) {
+    save.value = "create";
+    save.textContent = "Save command";
+  }
+  if (cancel) cancel.hidden = true;
+  document.querySelectorAll(".schedule-item.is-editing").forEach((item) => item.classList.remove("is-editing"));
+}
+
+function fillCommandForm(command) {
+  const form = commandForm();
+  if (!form || !command) return;
+  editingCommandId = String(command.id);
+  form.querySelector("[name='command_id']").value = command.id;
+  form.querySelector("[name='command_name']").value = command.name || "";
+  form.querySelector("[name='command_aliases']").value = command.aliases_text || (command.aliases || []).join(", ");
+  form.querySelector("[name='command_response']").value = command.response || "";
+  form.querySelector("[name='command_cooldown']").value = String(command.cooldown_seconds || 0);
+  const save = document.getElementById("custom-command-save");
+  const cancel = document.getElementById("custom-command-cancel");
+  if (save) {
+    save.value = "update";
+    save.textContent = "Update command";
+  }
+  if (cancel) cancel.hidden = false;
+  form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  form.querySelector("[name='command_response']")?.focus();
+}
+
 function renderCustomCommands(rows) {
   const host = document.querySelector("[data-live='custom_commands']");
   if (!host) return;
-  if (!rows || !rows.length) {
+  customCommands = rows || [];
+  if (editingCommandId && !customCommands.some((row) => String(row.id) === String(editingCommandId))) {
+    resetCommandForm();
+  }
+  if (!customCommands.length) {
     host.innerHTML = `<p class="muted">No custom commands yet. Add one below, for example <code>${escapeHtml(prefix())}discord</code>.</p>`;
     return;
   }
-  host.innerHTML = rows.map((row) => {
+  host.innerHTML = customCommands.map((row) => {
     const aliases = (row.aliases || []).map((name) => `${prefix()}${name}`).join(", ");
     const extras = [
       aliases ? `also ${aliases}` : "",
       row.cooldown_seconds ? `${row.cooldown_seconds}s cooldown` : "",
       row.use_count ? `used ${row.use_count}` : "",
     ].filter(Boolean).join(" · ");
+    const editing = String(row.id) === String(editingCommandId);
     return `
-    <article class="schedule-item ${row.enabled ? "" : "off"}">
+    <article class="schedule-item ${row.enabled ? "" : "off"}${editing ? " is-editing" : ""}" data-command-id="${row.id}">
       <p><code>${escapeHtml(prefix())}${escapeHtml(row.name)}</code></p>
       <span class="schedule-meta">${escapeHtml(row.response)}${extras ? ` · ${escapeHtml(extras)}` : ""}</span>
       <div class="actions">
+        <button type="button" class="ghost js-edit-command" data-id="${row.id}">Edit</button>
         <button type="button" class="ghost js-item" data-url="/commands" data-id="${row.id}" data-action="toggle">${row.enabled ? "Pause" : "Resume"}</button>
         <button type="button" class="ghost js-item" data-url="/commands" data-id="${row.id}" data-action="delete" data-confirm="Delete ${prefix()}${row.name}?">Delete</button>
       </div>
@@ -272,7 +324,9 @@ function setupForms() {
       if (submitter?.name) body.set(submitter.name, submitter.value || "1");
       try {
         const data = await postAction(form.dataset.action, body);
-        if (submitter?.value === "create" || submitter?.classList.contains("primary")) {
+        if (form.id === "custom-command-form") {
+          resetCommandForm();
+        } else if (submitter?.value === "create" || submitter?.classList.contains("primary")) {
           form.querySelectorAll("input:not([type='hidden']):not([type='number']), textarea").forEach((field) => {
             if (!field.readOnly && field.name !== "lurk_message" && !["daily_min", "daily_max", "starting_points", "default_raffle_cost", "prefixes", "interval_minutes"].includes(field.name)) {
               field.value = "";
@@ -326,6 +380,24 @@ function setupInstantToggles() {
       event.target.checked = !event.target.checked;
       showToast(error.message || "Could not update command.", "error");
     }
+  });
+}
+
+function setupCommandEditor() {
+  const cancel = document.getElementById("custom-command-cancel");
+  cancel?.addEventListener("click", () => resetCommandForm());
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".js-edit-command");
+    if (!button) return;
+    const command = customCommands.find((row) => String(row.id) === String(button.dataset.id));
+    if (!command) {
+      showToast("Could not load that command.", "error");
+      return;
+    }
+    fillCommandForm(command);
+    document.querySelectorAll(".schedule-item[data-command-id]").forEach((item) => {
+      item.classList.toggle("is-editing", item.dataset.commandId === String(command.id));
+    });
   });
 }
 
@@ -494,6 +566,7 @@ function setupOverlayCopy() {
 setupTabs();
 setupForms();
 setupInstantToggles();
+setupCommandEditor();
 setupItemActions();
 setupGiveawayWheel();
 setupOverlayCopy();

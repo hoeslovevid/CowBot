@@ -542,6 +542,10 @@ code {
 }
 
 .schedule-item.off { opacity: 0.62; }
+.schedule-item.is-editing {
+  outline: 1px solid rgba(232, 197, 71, 0.4);
+  background: rgba(232, 197, 71, 0.08);
+}
 .schedule-item p { margin: 0; }
 .schedule-meta {
   color: var(--muted);

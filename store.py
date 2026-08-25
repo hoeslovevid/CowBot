@@ -1132,39 +1132,66 @@ def _taken_command_names(exclude_id: int | None = None) -> set[str]:
     return taken
 
 
+def _prepare_custom_command_fields(
+    name: str,
+    response: str,
+    aliases: str | None,
+    cooldown_seconds: int | str | None,
+    *,
+    exclude_id: int | None = None,
+) -> tuple[dict | None, str | None]:
+    command_name = normalize_command_name(name)
+    if not command_name:
+        return None, "Command name cannot be empty."
+    if command_name in RESERVED_COMMANDS:
+        return None, f"'{command_name}' is a built-in command and cannot be replaced."
+    text = (response or "").strip()
+    if not text:
+        return None, "Command response cannot be empty."
+    if len(text) > 500:
+        return None, "Twitch messages cannot exceed 500 characters."
+    alias_names = [alias for alias in parse_command_aliases(aliases) if alias != command_name]
+    cooldown = parse_non_negative_int(str(cooldown_seconds if cooldown_seconds is not None else 0), 0)
+    if cooldown > MAX_COMMAND_COOLDOWN:
+        return None, "Cooldown cannot be more than 1 hour."
+    taken = _taken_command_names(exclude_id)
+    if command_name in taken:
+        return None, f"'{command_name}' is already used as a command or alias."
+    for alias in alias_names:
+        if alias in RESERVED_COMMANDS:
+            return None, f"'{alias}' is a built-in command and cannot be an alias."
+        if alias in taken:
+            return None, f"'{alias}' is already used as a command or alias."
+    return {
+        "name": command_name,
+        "response": text,
+        "aliases": format_command_aliases(alias_names),
+        "cooldown": cooldown,
+    }, None
+
+
 def upsert_custom_command(
     name: str,
     response: str,
     aliases: str | None = None,
     cooldown_seconds: int | str | None = 0,
 ) -> tuple[bool, str | None]:
-    command_name = normalize_command_name(name)
-    if not command_name:
-        return False, "Command name cannot be empty."
-    if command_name in RESERVED_COMMANDS:
-        return False, f"'{command_name}' is a built-in command and cannot be replaced."
-    text = (response or "").strip()
-    if not text:
-        return False, "Command response cannot be empty."
-    if len(text) > 500:
-        return False, "Twitch messages cannot exceed 500 characters."
-    alias_names = [alias for alias in parse_command_aliases(aliases) if alias != command_name]
-    cooldown = parse_non_negative_int(str(cooldown_seconds if cooldown_seconds is not None else 0), 0)
-    if cooldown > MAX_COMMAND_COOLDOWN:
-        return False, "Cooldown cannot be more than 1 hour."
     existing = None
-    for command in list_custom_commands():
-        if command["name"] == command_name:
-            existing = command
-            break
-    taken = _taken_command_names(existing["id"] if existing else None)
-    if existing is None and command_name in taken:
-        return False, f"'{command_name}' is already used as a command or alias."
-    for alias in alias_names:
-        if alias in RESERVED_COMMANDS:
-            return False, f"'{alias}' is a built-in command and cannot be an alias."
-        if alias in taken:
-            return False, f"'{alias}' is already used as a command or alias."
+    command_name = normalize_command_name(name)
+    if command_name:
+        for command in list_custom_commands():
+            if command["name"] == command_name:
+                existing = command
+                break
+    fields, error = _prepare_custom_command_fields(
+        name,
+        response,
+        aliases,
+        cooldown_seconds,
+        exclude_id=existing["id"] if existing else None,
+    )
+    if not fields:
+        return False, error
     with db_session() as conn:
         conn.execute(
             """
@@ -1179,14 +1206,50 @@ def upsert_custom_command(
                 cooldown_seconds = excluded.cooldown_seconds
             """,
             (
-                command_name,
-                text,
+                fields["name"],
+                fields["response"],
                 utc_now().isoformat(),
-                format_command_aliases(alias_names),
-                cooldown,
+                fields["aliases"],
+                fields["cooldown"],
             ),
         )
-    return True, command_name
+    return True, fields["name"]
+
+
+def update_custom_command(
+    command_id: int,
+    name: str,
+    response: str,
+    aliases: str | None = None,
+    cooldown_seconds: int | str | None = 0,
+) -> tuple[bool, str | None]:
+    if not get_custom_command_by_id(command_id):
+        return False, "Custom command not found."
+    fields, error = _prepare_custom_command_fields(
+        name,
+        response,
+        aliases,
+        cooldown_seconds,
+        exclude_id=command_id,
+    )
+    if not fields:
+        return False, error
+    with db_session() as conn:
+        conn.execute(
+            """
+            UPDATE custom_commands
+            SET name = ?, response = ?, aliases = ?, cooldown_seconds = ?
+            WHERE id = ?
+            """,
+            (
+                fields["name"],
+                fields["response"],
+                fields["aliases"],
+                fields["cooldown"],
+                command_id,
+            ),
+        )
+    return True, fields["name"]
 
 
 def delete_custom_command(command_id: int) -> bool:

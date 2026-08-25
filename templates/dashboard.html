@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=4">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=5">
 </head>
 <body data-prefix="{{ status.settings.primary_prefix }}">
   <div class="spots" aria-hidden="true"></div>
@@ -185,7 +185,8 @@
             <p>Use <code>{user}</code>, <code>{channel}</code>, <code>{points}</code>, <code>{count}</code>, <code>{prefix}</code>, and <code>{target}</code>.</p>
           </div>
           <div class="schedule-list" data-live="custom_commands"></div>
-          <form class="stack js-form" data-action="{{ url_for('manage_commands') }}">
+          <form id="custom-command-form" class="stack js-form" data-action="{{ url_for('manage_commands') }}">
+            <input type="hidden" name="command_id" value="">
             <div class="form-grid">
               <label>Command
                 <input name="command_name" maxlength="32" placeholder="discord">
@@ -202,7 +203,10 @@
                 <span class="field-hint">0 means no cooldown. Mods skip it.</span>
               </label>
             </div>
-            <button type="submit" name="action" value="create" class="primary">Save command</button>
+            <div class="actions">
+              <button type="submit" name="action" value="create" class="primary" id="custom-command-save">Save command</button>
+              <button type="button" class="ghost" id="custom-command-cancel" hidden>Cancel</button>
+            </div>
           </form>
         </section>
 
@@ -321,7 +325,7 @@
       </div>
     </div>
   </div>
-  <script src="{{ url_for('static', filename='wheel.js') }}?v=4"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=4"></script>
+  <script src="{{ url_for('static', filename='wheel.js') }}?v=5"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=5"></script>
 </body>
 </html>

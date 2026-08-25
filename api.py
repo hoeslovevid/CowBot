@@ -261,13 +261,25 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             return disabled
         payload = await request.json()
         action = (payload.get("action") or "").lower()
-        if action == "create":
-            success, result = store.upsert_custom_command(
-                str(payload.get("name") or ""),
-                str(payload.get("response") or ""),
-                str(payload.get("aliases") or ""),
-                payload.get("cooldown_seconds"),
-            )
+        if action in {"create", "update"}:
+            command_id = store.parse_non_negative_int(str(payload.get("id") or payload.get("command_id") or ""), 0)
+            if action == "update" or command_id > 0:
+                if command_id <= 0:
+                    return web.json_response({"ok": False, "error": "Missing custom command."}, status=400)
+                success, result = store.update_custom_command(
+                    command_id,
+                    str(payload.get("name") or ""),
+                    str(payload.get("response") or ""),
+                    str(payload.get("aliases") or ""),
+                    payload.get("cooldown_seconds"),
+                )
+            else:
+                success, result = store.upsert_custom_command(
+                    str(payload.get("name") or ""),
+                    str(payload.get("response") or ""),
+                    str(payload.get("aliases") or ""),
+                    payload.get("cooldown_seconds"),
+                )
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
             return web.json_response({"ok": True, "name": result})
