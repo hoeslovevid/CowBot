@@ -6,11 +6,12 @@
   <title>CowBot Control</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=3">
 </head>
-<body>
+<body data-prefix="{{ status.settings.primary_prefix }}">
   <div class="spots" aria-hidden="true"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
   <div class="shell">
     <header class="topbar">
       <div class="brand">
@@ -27,66 +28,139 @@
           </svg>
         </div>
         <div>
-          <p class="eyebrow">Pasture control</p>
+          <p class="eyebrow">Control room</p>
           <h1>CowBot</h1>
         </div>
       </div>
+      <nav class="tabs" aria-label="Dashboard">
+        <button type="button" class="tab is-active" data-tab="live">Live</button>
+        <button type="button" class="tab" data-tab="commands">Commands</button>
+        <button type="button" class="tab" data-tab="settings">Settings</button>
+      </nav>
       <div class="top-meta">
-        <div class="pill {% if status.bot_reachable and status.connected %}live{% else %}down{% endif %}">
+        <div class="pill {% if status.bot_reachable and status.connected %}live{% else %}down{% endif %}" data-live="pill">
           <i></i>
-          {% if status.bot_reachable and status.connected %}Live on stream{% elif status.bot_reachable %}Connecting{% else %}Bot offline{% endif %}
+          <span>{% if status.bot_reachable and status.connected %}Live on stream{% elif status.bot_reachable %}Connecting{% else %}Bot offline{% endif %}</span>
         </div>
         <div class="channel">
-          <span>Broadcasting to</span>
-          <strong>#{{ status.channel }}</strong>
+          <span>Channel</span>
+          <strong data-live="channel">#{{ status.channel }}</strong>
+        </div>
+        <div class="channel">
+          <span>Uptime</span>
+          <strong data-live="uptime">{{ status.uptime }}</strong>
         </div>
       </div>
     </header>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <div class="toasts">
-          {% for category, message in messages %}
-            <p class="toast {{ category }}">{{ message }}</p>
-          {% endfor %}
-        </div>
-      {% endif %}
-    {% endwith %}
-
     <section class="stats">
       <article class="stat">
-        <span>Uptime</span>
-        <strong data-status="uptime">{{ status.uptime }}</strong>
-        <em>{{ status.bot_name }}</em>
-      </article>
-      <article class="stat">
         <span>Giveaway</span>
-        <strong data-status="active_giveaway">{{ status.active_giveaway or 'Idle' }}</strong>
-        <em data-status="last_giveaway_winner">{% if status.giveaway_drawing %}Drawing winner · {{ status.giveaway_entry_count }} entered{% elif status.active_giveaway %}{{ status.giveaway_entry_count }} entered{% elif status.last_giveaway_winner %}Last winner {{ status.last_giveaway_winner }}{% else %}No winner yet{% endif %}</em>
+        <strong data-live="active_giveaway">{{ status.active_giveaway or 'Idle' }}</strong>
+        <em data-live="giveaway_meta">{% if status.giveaway_drawing %}Drawing · {{ status.giveaway_entry_count }} entered{% elif status.active_giveaway %}{{ status.giveaway_entry_count }} entered{% elif status.last_giveaway_winner %}Last winner {{ status.last_giveaway_winner }}{% else %}No winner yet{% endif %}</em>
       </article>
       <article class="stat">
         <span>Poll</span>
-        <strong data-status="active_poll">{{ status.active_poll or 'Idle' }}</strong>
-        <em data-status="poll_question">{{ status.poll_question or 'No active question' }}</em>
+        <strong data-live="active_poll">{{ status.active_poll or 'Idle' }}</strong>
+        <em data-live="poll_question">{{ status.poll_question or 'No active question' }}</em>
       </article>
       <article class="stat">
         <span>Raffle</span>
-        <strong data-status="active_raffle">{{ status.active_raffle or 'Idle' }}</strong>
-        <em data-status="raffle_cost">{% if status.raffle_cost %}{{ status.raffle_cost }} points to enter{% else %}Waiting to start{% endif %}</em>
+        <strong data-live="active_raffle">{{ status.active_raffle or 'Idle' }}</strong>
+        <em data-live="raffle_cost">{% if status.raffle_cost %}{{ status.raffle_cost }} points to enter{% else %}Waiting to start{% endif %}</em>
+      </article>
+      <article class="stat">
+        <span>Bot</span>
+        <strong data-live="bot_name">{{ status.bot_name }}</strong>
+        <em>Chat prefix <code data-live="prefix">{{ status.settings.primary_prefix }}</code></em>
       </article>
     </section>
 
-    <div class="layout">
-      <section class="card wide">
-        <div class="card-head">
-          <h2>Modules</h2>
-          <p>Turn chat features on or off without restarting the bot</p>
-        </div>
-        <form method="post" action="{{ url_for('update_features') }}" class="stack">
-          <div class="module-grid">
+    <section class="panel is-active" id="panel-live" data-panel="live">
+      <div class="layout">
+        <section class="card wide{% if not status.features.giveaway.enabled %} is-off{% endif %}" data-module-card="giveaway">
+          <div class="card-head">
+            <h2>Giveaway</h2>
+            <p>Free entry, then spin the wheel for a winner</p>
+          </div>
+          <div class="live-box" data-live="giveaway_live"></div>
+          <form id="giveaway-form" class="stack js-form" data-action="{{ url_for('manage_giveaway') }}">
+            <label>Name
+              <input name="giveaway_name" placeholder="keyboard-drop">
+            </label>
+            <div class="actions">
+              <button type="submit" name="action" value="start" class="primary">Start giveaway</button>
+              <button type="button" class="ghost" id="pick-giveaway-winner">Pick winner</button>
+              <button type="button" class="ghost" id="reroll-giveaway">Reroll</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card wide{% if not status.features.poll.enabled %} is-off{% endif %}" data-module-card="poll">
+          <div class="card-head">
+            <h2>Poll</h2>
+            <p>Posted straight into Twitch chat</p>
+          </div>
+          <div class="live-box" data-live="poll_results"></div>
+          <form class="stack js-form" data-action="{{ url_for('manage_poll') }}">
+            <div class="form-grid">
+              <label>Name
+                <input name="poll_name" placeholder="stream-poll">
+              </label>
+              <label>Question
+                <input name="poll_question" placeholder="What game next?">
+              </label>
+            </div>
+            <label>Options
+              <input name="poll_options" placeholder="Minecraft, Valorant, Just Chatting">
+            </label>
+            <div class="actions">
+              <button type="submit" name="action" value="start" class="primary">Start poll</button>
+              <button type="submit" name="action" value="end" class="ghost" data-confirm="End this poll and post results in chat?">End poll</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card{% if not status.features.raffle.enabled %} is-off{% endif %}" data-module-card="raffle">
+          <div class="card-head">
+            <h2>Raffle</h2>
+            <p>Spend points for a shot at winning</p>
+          </div>
+          <form class="stack js-form" data-action="{{ url_for('manage_raffle') }}">
+            <label>Name
+              <input name="raffle_name" placeholder="vip-slot">
+            </label>
+            <label>Entry cost
+              <input name="raffle_cost" type="number" min="1" placeholder="{{ status.settings.default_raffle_cost }}">
+            </label>
+            <div class="actions">
+              <button type="submit" name="action" value="start" class="primary">Start raffle</button>
+              <button type="submit" name="action" value="end" class="ghost" data-confirm="Draw a raffle winner and post it in chat?">Draw winner</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card featured{% if not status.features.economy.enabled %} is-off{% endif %}" data-module-card="economy">
+          <div class="card-head">
+            <h2>Leaderboard</h2>
+            <p>Top chatters by points</p>
+          </div>
+          <ol class="board" data-live="leaderboard"></ol>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-commands" data-panel="commands" hidden>
+      <div class="layout">
+        <section class="card wide">
+          <div class="card-head">
+            <h2>Modules</h2>
+            <p>Changes apply immediately. Off modules stay collapsed until you turn them back on.</p>
+          </div>
+          <div class="module-grid" id="module-grid">
             {% for key, feature in status.features.items() %}
               <label class="module-toggle">
-                <input type="checkbox" name="{{ key }}" value="1" {% if feature.enabled %}checked{% endif %}>
+                <input type="checkbox" name="{{ key }}" value="1" data-feature="{{ key }}" {% if feature.enabled %}checked{% endif %}>
                 <span>
                   <strong>{{ feature.label }}</strong>
                   <em>{{ feature.blurb }}</em>
@@ -94,271 +168,129 @@
               </label>
             {% endfor %}
           </div>
-          <button type="submit" class="primary">Save modules</button>
-        </form>
-      </section>
+        </section>
 
-      <section class="card wide">
-        <div class="card-head">
-          <h2>Built-in commands</h2>
-          <p>Turn individual chat commands on or off. A module switch still overrides its group.</p>
-        </div>
-        <form method="post" action="{{ url_for('update_builtin_commands') }}" class="stack">
-          {% for group in status.builtin_command_groups %}
-            <div class="command-group{% if not group.module_enabled %} module-off{% endif %}">
-              <h3>{{ group.label }}{% if not group.module_enabled %} · module off{% endif %}</h3>
-              <div class="module-grid">
-                {% for cmd in group.commands %}
-                  <label class="module-toggle">
-                    <input type="checkbox" name="{{ cmd.name }}" value="1" {% if cmd.enabled %}checked{% endif %}>
-                    <span>
-                      <strong><code>{{ status.settings.primary_prefix }}{{ cmd.name }}</code></strong>
-                      <em>{{ cmd.blurb }}</em>
-                    </span>
-                  </label>
-                {% endfor %}
-              </div>
+        <section class="card wide">
+          <div class="card-head">
+            <h2>Built-in commands</h2>
+            <p>A module switch still overrides its group. Toggles save immediately.</p>
+          </div>
+          <div id="builtin-commands"></div>
+        </section>
+
+        <section class="card wide{% if not status.features.custom_commands.enabled %} is-off{% endif %}" data-module-card="custom_commands">
+          <div class="card-head">
+            <h2>Custom commands</h2>
+            <p>Use <code>{user}</code> for the chatter’s name.</p>
+          </div>
+          <div class="schedule-list" data-live="custom_commands"></div>
+          <form class="stack js-form" data-action="{{ url_for('manage_commands') }}">
+            <div class="form-grid">
+              <label>Command
+                <input name="command_name" maxlength="32" placeholder="discord">
+              </label>
+              <label>Reply
+                <input name="command_response" maxlength="500" placeholder="Join the Discord: https://discord.gg/example">
+              </label>
             </div>
-          {% endfor %}
-          <label>Lurk message
-            <textarea name="lurk_message" maxlength="500" rows="3">{{ status.settings.lurk_message }}</textarea>
-            <span class="field-hint">Use <code>{user}</code> to mention the chatter.</span>
-          </label>
-          <button type="submit" class="primary">Save commands</button>
-        </form>
-      </section>
+            <button type="submit" name="action" value="create" class="primary">Save command</button>
+          </form>
+        </section>
 
-      <section class="card featured{% if not status.features.economy.enabled %} is-off{% endif %}">
-        <div class="card-head">
-          <h2>Herd leaderboard</h2>
-          <p>Top chatters by points</p>
-        </div>
-        <ol class="board" data-status="leaderboard">
-          {% for row in status.leaderboard %}
-            <li class="place-{{ loop.index if loop.index <= 3 else 'rest' }}">
-              <span class="rank">{{ loop.index }}</span>
-              <span class="user">{{ row.user }}</span>
-              <span class="points">{{ row.points }}</span>
-            </li>
-          {% else %}
-            <li class="empty">The pasture is quiet. Points will show up after chat starts playing.</li>
-          {% endfor %}
-        </ol>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <h2>Economy</h2>
-          <p>{% if status.features.economy.enabled %}Daily rewards, raffle defaults, and chat prefixes{% else %}Economy commands are off. Prefixes still apply.{% endif %}</p>
-        </div>
-        <form method="post" action="{{ url_for('update_settings') }}" class="form-grid">
-          <label>Daily min
-            <input name="daily_min" type="number" min="0" value="{{ status.settings.daily_min }}">
-          </label>
-          <label>Daily max
-            <input name="daily_max" type="number" min="0" value="{{ status.settings.daily_max }}">
-          </label>
-          <label>Starting points
-            <input name="starting_points" type="number" min="0" value="{{ status.settings.starting_points }}">
-          </label>
-          <label>Default raffle cost
-            <input name="default_raffle_cost" type="number" min="1" value="{{ status.settings.default_raffle_cost }}">
-          </label>
-          <label class="span-2">Command prefixes
-            <input name="prefixes" value="{{ status.settings.prefixes }}" placeholder="?, !">
-            <span class="field-hint">Comma-separated. The first one is used in bot messages. Twitch blocks <code>/</code>.</span>
-          </label>
-          <button type="submit" class="primary">Save settings</button>
-        </form>
-      </section>
-
-      <section class="card wide{% if not status.features.poll.enabled %} is-off{% endif %}">
-        <div class="card-head">
-          <h2>Poll</h2>
-          <p>Posted straight into Twitch chat</p>
-        </div>
-        <div class="live-box" data-status="poll_results">
-          {% if status.active_poll %}
-            <p class="live-title">{{ status.poll_question }}</p>
-            {% set ns = namespace(max_votes=1) %}
-            {% for row in status.poll_results %}
-              {% if row.votes > ns.max_votes %}{% set ns.max_votes = row.votes %}{% endif %}
-            {% endfor %}
-            <ul>
-              {% for row in status.poll_results %}
-                <li>
-                  <div class="option-row">
-                    <span>{{ row.option }}</span>
-                    <b>{{ row.votes }}</b>
-                  </div>
-                  <div class="bar"><i style="width: {{ ((row.votes / ns.max_votes) * 100) | round }}%"></i></div>
-                </li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <p class="muted">No poll running. Start one and votes will stack here.</p>
-          {% endif %}
-        </div>
-        <form method="post" action="{{ url_for('manage_poll') }}" class="stack">
-          <div class="form-grid">
-            <label>Name
-              <input name="poll_name" placeholder="stream-poll">
+        <section class="card wide{% if not status.features.scheduled_messages.enabled %} is-off{% endif %}" data-module-card="scheduled_messages">
+          <div class="card-head">
+            <h2>Scheduled messages</h2>
+            <p>Repeating chat lines while the bot is online</p>
+          </div>
+          <div class="schedule-list" data-live="scheduled_messages"></div>
+          <form class="stack js-form" data-action="{{ url_for('manage_schedule') }}">
+            <label>Message
+              <input name="schedule_message" maxlength="500" placeholder="Follow for daily rewards with {{ status.settings.primary_prefix }}daily">
             </label>
-            <label>Question
-              <input name="poll_question" placeholder="What game next?">
+            <label>Every (minutes)
+              <input name="interval_minutes" type="number" min="1" max="1440" value="15">
             </label>
-          </div>
-          <label>Options
-            <input name="poll_options" placeholder="Minecraft, Valorant, Just Chatting">
-          </label>
-          <div class="actions">
-            <button type="submit" name="action" value="start" class="primary">Start poll</button>
-            <button type="submit" name="action" value="end" class="ghost">End poll</button>
-          </div>
-        </form>
-      </section>
+            <button type="submit" name="action" value="create" class="primary">Add schedule</button>
+          </form>
+        </section>
+      </div>
+    </section>
 
-      <section class="card{% if not status.features.raffle.enabled %} is-off{% endif %}">
-        <div class="card-head">
-          <h2>Raffle</h2>
-          <p>Spend points for a shot at winning</p>
-        </div>
-        <form method="post" action="{{ url_for('manage_raffle') }}" class="stack">
-          <label>Name
-            <input name="raffle_name" placeholder="vip-slot">
-          </label>
-          <label>Entry cost
-            <input name="raffle_cost" type="number" min="1" placeholder="{{ status.settings.default_raffle_cost }}">
-          </label>
-          <div class="actions">
-            <button type="submit" name="action" value="start" class="primary">Start raffle</button>
-            <button type="submit" name="action" value="end" class="ghost">Draw winner</button>
+    <section class="panel" id="panel-settings" data-panel="settings" hidden>
+      <div class="layout">
+        <section class="card">
+          <div class="card-head">
+            <h2>Economy</h2>
+            <p>Daily rewards, starting points, and raffle defaults</p>
           </div>
-        </form>
-      </section>
-
-      <section class="card wide{% if not status.features.giveaway.enabled %} is-off{% endif %}">
-        <div class="card-head">
-          <h2>Giveaway</h2>
-          <p>Free entry, then spin the wheel for a winner</p>
-        </div>
-        <div class="live-box" data-status="giveaway_live">
-          {% if status.active_giveaway %}
-            <p class="live-title">{{ status.active_giveaway }}</p>
-            <p class="muted">{% if status.giveaway_drawing %}Entries are locked while a winner is drawn.{% else %}{{ status.giveaway_entry_count }} entered · type <code>{{ status.settings.primary_prefix }}giveaway</code> to join{% endif %}</p>
-            {% if status.giveaway_entries %}
-              <ul class="entry-list">
-                {% for user in status.giveaway_entries %}
-                  <li>{{ user }}</li>
-                {% endfor %}
-              </ul>
-            {% else %}
-              <p class="muted">Waiting for entries.</p>
-            {% endif %}
-          {% else %}
-            <p class="muted">No giveaway running. Start one and names will show up here.</p>
-          {% endif %}
-        </div>
-        <form id="giveaway-form" method="post" action="{{ url_for('manage_giveaway') }}" class="stack">
-          <label>Name
-            <input name="giveaway_name" placeholder="keyboard-drop">
-          </label>
-          <div class="actions">
-            <button type="submit" name="action" value="start" class="primary">Start giveaway</button>
-            <button type="submit" name="action" value="end" class="ghost" id="pick-giveaway-winner">Pick winner</button>
-            <button type="button" class="ghost" id="reroll-giveaway">Reroll</button>
-          </div>
-          <label>OBS browser source
-            <input id="overlay-url" readonly value="{{ overlay_url }}">
-          </label>
-          <div class="actions">
-            <button type="button" class="ghost" id="copy-overlay-url">Copy OBS URL</button>
-          </div>
-          <p class="muted">In OBS: Browser Source, 1080×1080, check <strong>Transparent</strong>, and uncheck <strong>Shutdown source when not visible</strong>. Leave this source in the scene you stream. The wheel stays hidden until you pick a winner here.</p>
-        </form>
-      </section>
-
-      <section class="card{% if not status.features.quotes.enabled %} is-off{% endif %}">
-        <div class="card-head">
-          <h2>Quotes</h2>
-          <p>Saved for <code>{{ status.settings.primary_prefix }}quote</code> in chat</p>
-        </div>
-        <form method="post" action="{{ url_for('manage_quote') }}" class="stack">
-          <label>Quote
-            <input name="quote_text" placeholder="Never give up">
-          </label>
-          <label>Author
-            <input name="quote_author" placeholder="Coach">
-          </label>
-          <button type="submit" class="primary">Add quote</button>
-        </form>
-      </section>
-
-      <section class="card wide{% if not status.features.custom_commands.enabled %} is-off{% endif %}">
-        <div class="card-head">
-          <h2>Custom commands</h2>
-          <p>Chat replies saved in the database. Use <code>{user}</code> for the chatter’s name.</p>
-        </div>
-        <div class="schedule-list" data-status="custom_commands">
-          {% for row in status.custom_commands %}
-            <article class="schedule-item {% if not row.enabled %}off{% endif %}">
-              <p><code>{{ status.settings.primary_prefix }}{{ row.name }}</code></p>
-              <span class="schedule-meta">{{ row.response }}</span>
-              <form method="post" action="{{ url_for('manage_commands') }}" class="actions">
-                <input type="hidden" name="id" value="{{ row.id }}">
-                <button type="submit" name="action" value="toggle" class="ghost">{% if row.enabled %}Pause{% else %}Resume{% endif %}</button>
-                <button type="submit" name="action" value="delete" class="ghost">Delete</button>
-              </form>
-            </article>
-          {% else %}
-            <p class="muted">No custom commands yet. Add one below, for example <code>{{ status.settings.primary_prefix }}discord</code>.</p>
-          {% endfor %}
-        </div>
-        <form method="post" action="{{ url_for('manage_commands') }}" class="stack">
-          <div class="form-grid">
-            <label>Command
-              <input name="command_name" maxlength="32" placeholder="discord">
+          <form class="form-grid js-form" data-action="{{ url_for('update_settings') }}">
+            <label>Daily min
+              <input name="daily_min" type="number" min="0" value="{{ status.settings.daily_min }}">
             </label>
-            <label>Reply
-              <input name="command_response" maxlength="500" placeholder="Join the Discord: https://discord.gg/example">
+            <label>Daily max
+              <input name="daily_max" type="number" min="0" value="{{ status.settings.daily_max }}">
             </label>
-          </div>
-          <button type="submit" name="action" value="create" class="primary">Save command</button>
-        </form>
-      </section>
+            <label>Starting points
+              <input name="starting_points" type="number" min="0" value="{{ status.settings.starting_points }}">
+            </label>
+            <label>Default raffle cost
+              <input name="default_raffle_cost" type="number" min="1" value="{{ status.settings.default_raffle_cost }}">
+            </label>
+            <label class="span-2">Command prefixes
+              <input name="prefixes" value="{{ status.settings.prefixes }}" placeholder="?, !">
+              <span class="field-hint">Comma-separated. The first one is used in bot messages. Twitch blocks <code>/</code>.</span>
+            </label>
+            <button type="submit" class="primary">Save economy</button>
+          </form>
+        </section>
 
-      <section class="card wide{% if not status.features.scheduled_messages.enabled %} is-off{% endif %}">
-        <div class="card-head">
-          <h2>Scheduled messages</h2>
-          <p>Repeating chat lines while the bot is online</p>
-        </div>
-        <div class="schedule-list" data-status="scheduled_messages">
-          {% for row in status.scheduled_messages %}
-            <article class="schedule-item {% if not row.enabled %}off{% endif %}">
-              <p>{{ row.message }}</p>
-              <span class="schedule-meta">Every {{ row.interval_minutes }} min · {% if row.enabled %}On{% else %}Paused{% endif %}{% if row.last_sent_at %} · Last sent {{ row.last_sent_at.replace('T', ' ')[:16] }} UTC{% endif %}</span>
-              <form method="post" action="{{ url_for('manage_schedule') }}" class="actions">
-                <input type="hidden" name="id" value="{{ row.id }}">
-                <button type="submit" name="action" value="toggle" class="ghost">{% if row.enabled %}Pause{% else %}Resume{% endif %}</button>
-                <button type="submit" name="action" value="send" class="ghost">Send now</button>
-                <button type="submit" name="action" value="delete" class="ghost">Delete</button>
-              </form>
-            </article>
-          {% else %}
-            <p class="muted">No scheduled messages yet. Add one below and the bot will post it on a timer.</p>
-          {% endfor %}
-        </div>
-        <form method="post" action="{{ url_for('manage_schedule') }}" class="stack">
-          <label>Message
-            <input name="schedule_message" maxlength="500" placeholder="Follow for daily rewards with {{ status.settings.primary_prefix }}daily">
-          </label>
-          <label>Every (minutes)
-            <input name="interval_minutes" type="number" min="1" max="1440" value="15">
-          </label>
-          <button type="submit" name="action" value="create" class="primary">Add schedule</button>
-        </form>
-      </section>
-    </div>
+        <section class="card{% if not status.features.quotes.enabled %} is-off{% endif %}" data-module-card="quotes">
+          <div class="card-head">
+            <h2>Quotes</h2>
+            <p>Saved for <code data-live="prefix">{{ status.settings.primary_prefix }}</code>quote in chat</p>
+          </div>
+          <form class="stack js-form" data-action="{{ url_for('manage_quote') }}">
+            <label>Quote
+              <input name="quote_text" placeholder="Never give up">
+            </label>
+            <label>Author
+              <input name="quote_author" placeholder="Coach">
+            </label>
+            <button type="submit" class="primary">Add quote</button>
+          </form>
+        </section>
+
+        <section class="card wide">
+          <div class="card-head">
+            <h2>Lurk message</h2>
+            <p>Posted when someone uses the lurk command</p>
+          </div>
+          <form class="stack js-form" data-action="{{ url_for('update_lurk_message') }}">
+            <label>Message
+              <textarea name="lurk_message" maxlength="500" rows="3">{{ status.settings.lurk_message }}</textarea>
+              <span class="field-hint">Use <code>{user}</code> to mention the chatter.</span>
+            </label>
+            <button type="submit" class="primary">Save lurk message</button>
+          </form>
+        </section>
+
+        <section class="card wide">
+          <div class="card-head">
+            <h2>OBS overlay</h2>
+            <p>Browser source for the giveaway wheel</p>
+          </div>
+          <div class="stack">
+            <label>OBS browser source
+              <input id="overlay-url" readonly value="{{ overlay_url }}">
+            </label>
+            <div class="actions">
+              <button type="button" class="ghost" id="copy-overlay-url">Copy OBS URL</button>
+            </div>
+            <p class="muted">Browser Source, 1080×1080, check <strong>Transparent</strong>, and uncheck <strong>Shutdown source when not visible</strong>. Leave it in the scene you stream. The wheel stays hidden until you pick a winner on Live.</p>
+          </div>
+        </section>
+      </div>
+    </section>
   </div>
 
   <div id="giveaway-wheel" class="wheel-modal" hidden>
@@ -380,7 +312,7 @@
       </div>
     </div>
   </div>
-  <script src="{{ url_for('static', filename='wheel.js') }}"></script>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='wheel.js') }}?v=3"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=3"></script>
 </body>
 </html>

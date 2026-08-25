@@ -144,6 +144,35 @@ def post_bot(path: str, payload: dict) -> tuple[bool, str | None]:
     return False, data.get("error")
 
 
+def wants_json() -> bool:
+    return "application/json" in (request.headers.get("Accept") or "")
+
+
+def posted() -> dict:
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    return request.form.to_dict(flat=True)
+
+
+def finish(success: bool, ok_message: str, error: str | None = None):
+    if wants_json():
+        payload = {"ok": success}
+        if success:
+            payload["message"] = ok_message
+        else:
+            payload["error"] = error or ok_message
+        return jsonify(payload), 200 if success else 400
+    flash(error or ok_message, "error" if not success else "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.after_request
+def cache_static(response):
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+    return response
+
+
 @app.route("/health", methods=["GET", "HEAD"])
 def health():
     return {"ok": True, "service": "dashboard"}
@@ -151,7 +180,9 @@ def health():
 
 @app.route("/api/status")
 def proxy_status():
-    return fetch_status()
+    body = jsonify(fetch_status())
+    body.headers["Cache-Control"] = "no-store"
+    return body
 
 
 @app.route("/")
@@ -161,88 +192,95 @@ def dashboard():
 
 @app.route("/update-settings", methods=["POST"])
 def update_settings():
+    data = posted()
     success, error = post_bot("/api/settings", {
-        "daily_min": request.form.get("daily_min"),
-        "daily_max": request.form.get("daily_max"),
-        "starting_points": request.form.get("starting_points"),
-        "default_raffle_cost": request.form.get("default_raffle_cost"),
-        "prefixes": request.form.get("prefixes"),
+        "daily_min": data.get("daily_min"),
+        "daily_max": data.get("daily_max"),
+        "starting_points": data.get("starting_points"),
+        "default_raffle_cost": data.get("default_raffle_cost"),
+        "prefixes": data.get("prefixes"),
     })
-    flash(error or "Settings saved.", "error" if error else "success")
-    return redirect(url_for("dashboard"))
+    return finish(success, "Economy settings saved.", error)
 
 
 @app.route("/features", methods=["POST"])
 def update_features():
+    data = posted()
     flags = {
-        key: "1" if request.form.get(key) else "0"
+        key: "1" if str(data.get(key, "")).lower() in {"1", "true", "on", "yes"} else "0"
         for key in store.FEATURE_MODULES
     }
     success, error = post_bot("/api/features", flags)
-    flash(error or "Modules updated.", "error" if error else "success")
-    return redirect(url_for("dashboard"))
+    return finish(success, "Modules updated.", error)
 
 
 @app.route("/builtin-commands", methods=["POST"])
 def update_builtin_commands():
-    flags = {
-        name: "1" if request.form.get(name) else "0"
+    data = posted()
+    commands = data.get("commands") if isinstance(data.get("commands"), dict) else {
+        name: "1" if data.get(name) else "0"
         for name in store.BUILTIN_COMMANDS
+        if name in data
     }
+    payload = {"commands": commands}
+    if "lurk_message" in data:
+        payload["lurk_message"] = data.get("lurk_message")
+    success, error = post_bot("/api/builtin-commands", payload)
+    return finish(success, "Built-in commands updated.", error)
+
+
+@app.route("/lurk-message", methods=["POST"])
+def update_lurk_message():
+    data = posted()
     success, error = post_bot("/api/builtin-commands", {
-        "commands": flags,
-        "lurk_message": request.form.get("lurk_message"),
+        "lurk_message": data.get("lurk_message"),
     })
-    flash(error or "Built-in commands updated.", "error" if error else "success")
-    return redirect(url_for("dashboard"))
+    return finish(success, "Lurk message saved.", error)
 
 
 @app.route("/poll", methods=["POST"])
 def manage_poll():
-    action = request.form.get("action")
+    data = posted()
+    action = data.get("action")
     if action == "start":
         success, error = post_bot("/api/poll", {
             "action": "start",
-            "name": request.form.get("poll_name"),
-            "question": request.form.get("poll_question"),
-            "options": request.form.get("poll_options"),
+            "name": data.get("poll_name"),
+            "question": data.get("poll_question"),
+            "options": data.get("poll_options"),
         })
-        flash(error or "Poll started in chat.", "error" if error else "success")
-    else:
-        success, error = post_bot("/api/poll", {"action": "end"})
-        flash(error or "Poll ended and results posted to chat.", "error" if error else "success")
-    return redirect(url_for("dashboard"))
+        return finish(success, "Poll started in chat.", error)
+    success, error = post_bot("/api/poll", {"action": "end"})
+    return finish(success, "Poll ended and results posted to chat.", error)
 
 
 @app.route("/raffle", methods=["POST"])
 def manage_raffle():
-    action = request.form.get("action")
+    data = posted()
+    action = data.get("action")
     if action == "start":
         success, error = post_bot("/api/raffle", {
             "action": "start",
-            "name": request.form.get("raffle_name"),
-            "cost": request.form.get("raffle_cost"),
+            "name": data.get("raffle_name"),
+            "cost": data.get("raffle_cost"),
         })
-        flash(error or "Raffle started in chat.", "error" if error else "success")
-    else:
-        success, error = post_bot("/api/raffle", {"action": "end"})
-        flash(error or "Raffle ended and winner posted to chat.", "error" if error else "success")
-    return redirect(url_for("dashboard"))
+        return finish(success, "Raffle started in chat.", error)
+    success, error = post_bot("/api/raffle", {"action": "end"})
+    return finish(success, "Raffle ended and winner posted to chat.", error)
 
 
 @app.route("/giveaway", methods=["POST"])
 def manage_giveaway():
-    action = request.form.get("action")
+    data = posted()
+    action = data.get("action")
     if action == "start":
         success, error = post_bot("/api/giveaway", {
             "action": "start",
-            "name": request.form.get("giveaway_name"),
+            "name": data.get("giveaway_name"),
         })
-        flash(error or "Giveaway started in chat.", "error" if error else "success")
-    else:
-        success, error = post_bot("/api/giveaway", {"action": "end"})
-        flash(error or "Giveaway ended and winner posted to chat.", "error" if error else "success")
-    return redirect(url_for("dashboard"))
+        return finish(success, "Giveaway started in chat.", error)
+    success, error = post_bot("/api/giveaway", {"action": "end"})
+    return finish(success, "Giveaway ended and winner posted to chat.", error)
 
 
 @app.route("/giveaway/draw", methods=["POST"])
@@ -295,62 +333,58 @@ def giveaway_overlay_state():
 
 @app.route("/quote", methods=["POST"])
 def manage_quote():
+    data = posted()
     success, error = post_bot("/api/quote", {
-        "text": request.form.get("quote_text"),
-        "author": request.form.get("quote_author") or "Unknown",
+        "text": data.get("quote_text"),
+        "author": data.get("quote_author") or "Unknown",
     })
-    flash(error or "Quote added.", "error" if error else "success")
-    return redirect(url_for("dashboard"))
+    return finish(success, "Quote added.", error)
 
 
 @app.route("/schedule", methods=["POST"])
 def manage_schedule():
-    action = request.form.get("action")
+    data = posted()
+    action = data.get("action")
     if action == "create":
         success, error = post_bot("/api/schedule", {
             "action": "create",
-            "message": request.form.get("schedule_message"),
-            "interval_minutes": request.form.get("interval_minutes"),
+            "message": data.get("schedule_message"),
+            "interval_minutes": data.get("interval_minutes"),
         })
-        flash(error or "Scheduled message added.", "error" if error else "success")
-    else:
-        success, error = post_bot("/api/schedule", {
-            "action": action,
-            "id": request.form.get("id"),
-        })
-        if error:
-            flash(error, "error")
-        elif action == "send":
-            flash("Message sent to chat.", "success")
-        elif action == "delete":
-            flash("Scheduled message removed.", "success")
-        else:
-            flash("Scheduled message updated.", "success")
-    return redirect(url_for("dashboard"))
+        return finish(success, "Scheduled message added.", error)
+    success, error = post_bot("/api/schedule", {
+        "action": action,
+        "id": data.get("id"),
+    })
+    if error:
+        return finish(False, error, error)
+    if action == "send":
+        return finish(True, "Message sent to chat.")
+    if action == "delete":
+        return finish(True, "Scheduled message removed.")
+    return finish(True, "Scheduled message updated.")
 
 
 @app.route("/commands", methods=["POST"])
 def manage_commands():
-    action = request.form.get("action")
+    data = posted()
+    action = data.get("action")
     if action == "create":
         success, error = post_bot("/api/commands", {
             "action": "create",
-            "name": request.form.get("command_name"),
-            "response": request.form.get("command_response"),
+            "name": data.get("command_name"),
+            "response": data.get("command_response"),
         })
-        flash(error or "Custom command saved.", "error" if error else "success")
-    else:
-        success, error = post_bot("/api/commands", {
-            "action": action,
-            "id": request.form.get("id"),
-        })
-        if error:
-            flash(error, "error")
-        elif action == "delete":
-            flash("Custom command removed.", "success")
-        else:
-            flash("Custom command updated.", "success")
-    return redirect(url_for("dashboard"))
+        return finish(success, "Custom command saved.", error)
+    success, error = post_bot("/api/commands", {
+        "action": action,
+        "id": data.get("id"),
+    })
+    if error:
+        return finish(False, error, error)
+    if action == "delete":
+        return finish(True, "Custom command removed.")
+    return finish(True, "Custom command updated.")
 
 
 if __name__ == "__main__":
