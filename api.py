@@ -5,7 +5,7 @@ from aiohttp import web
 
 import store
 
-AnnounceFn = Callable[[str], Awaitable[None]]
+AnnounceFn = Callable[..., Awaitable[None]]
 StatusFn = Callable[[], dict]
 ApplyTokensFn = Callable[[str, str], Awaitable[None]]
 
@@ -176,7 +176,10 @@ def create_api_app(
                 return web.json_response({"ok": False, "error": result}, status=400)
             count = store.get_giveaway_winner_count()
             extra = f" Drawing {count} winners." if count > 1 else ""
-            await announce(f"Giveaway '{result}' started! Type {store.primary_prefix()}giveaway to join.{extra}")
+            await announce(
+                f"Giveaway '{result}' started! Type {store.primary_prefix()}giveaway to join.{extra}",
+                pin_giveaway=True,
+            )
             return web.json_response({"ok": True, "name": result, "count": count})
         if action == "draw":
             winners, giveaway_name, entries = store.draw_giveaway(payload.get("count"))
@@ -203,7 +206,10 @@ def create_api_app(
                     )
                 else:
                     label = "winner is" if len(winners) == 1 else "winners are"
-                    await announce(f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.")
+                    await announce(
+                        f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.",
+                        unpin_giveaway=True,
+                    )
                 return web.json_response({
                     "ok": True,
                     "winner": winners[0],
@@ -230,14 +236,20 @@ def create_api_app(
             winners, giveaway_name = store.finish_giveaway()
             if winners and giveaway_name:
                 label = "winner is" if len(winners) == 1 else "winners are"
-                await announce(f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.")
+                await announce(
+                    f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.",
+                    unpin_giveaway=True,
+                )
                 return web.json_response({"ok": True, "winner": winners[0], "winners": winners, "name": giveaway_name})
             return web.json_response({"ok": False, "error": giveaway_name or "No giveaway is currently active."}, status=400)
         if action == "cancel":
             success, result = store.cancel_giveaway()
             if not success:
                 return web.json_response({"ok": False, "error": result or "No giveaway is currently active."}, status=400)
-            await announce(f"Giveaway '{result}' was cancelled. No winner was chosen.")
+            await announce(
+                f"Giveaway '{result}' was cancelled. No winner was chosen.",
+                unpin_giveaway=True,
+            )
             return web.json_response({"ok": True, "name": result})
         return web.json_response({"ok": False, "error": "Unknown giveaway action."}, status=400)
 

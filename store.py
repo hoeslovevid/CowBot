@@ -622,6 +622,15 @@ def get_last_giveaway_name() -> str | None:
     return value or None
 
 
+def get_giveaway_pin_id() -> str | None:
+    value = get_setting("giveaway_pin_id", "")
+    return value or None
+
+
+def set_giveaway_pin_id(message_id: str | None) -> None:
+    set_setting("giveaway_pin_id", str(message_id or "").strip())
+
+
 def _excluded_winners(conn: sqlite3.Connection, extra: str | None = None) -> set[str]:
     names = {normalize_user(part) for part in get_config_value(conn, "giveaway_excluded_winners").split(",") if part.strip()}
     if extra:
@@ -914,6 +923,7 @@ BOT_OAUTH_SCOPES = (
     "user:write:chat",
     "user:bot",
     "moderator:read:chatters",
+    "moderator:manage:chat_messages",
 )
 
 

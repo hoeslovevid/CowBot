@@ -3,6 +3,7 @@ import random
 import asyncio
 import time
 
+import aiohttp
 from dotenv import load_dotenv, find_dotenv
 from twitchio import Scopes, eventsub
 from twitchio.ext import commands
@@ -332,7 +333,10 @@ class CowCommands(commands.Component):
                 return
             count = store.get_giveaway_winner_count()
             extra = f" Drawing {count} winners." if count > 1 else ""
-            await ctx.send(f"Giveaway '{name}' started! Type {store.primary_prefix()}giveaway to join.{extra}")
+            sent = await ctx.send(
+                f"Giveaway '{name}' started! Type {store.primary_prefix()}giveaway to join.{extra}"
+            )
+            await self.bot.pin_giveaway_message(getattr(sent, "id", None))
         elif action == "enter":
             mention = get_author_mention(ctx)
             success, result = store.enter_giveaway(get_author_name(ctx))
@@ -349,6 +353,7 @@ class CowCommands(commands.Component):
                 return
             winners, giveaway_name = store.finish_giveaway()
             if winners and giveaway_name:
+                await self.bot.unpin_giveaway_message()
                 label = "winner is" if len(winners) == 1 else "winners are"
                 await ctx.send(f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.")
             else:
@@ -361,6 +366,7 @@ class CowCommands(commands.Component):
             if not success:
                 await ctx.send(result or "No giveaway is currently active.")
                 return
+            await self.bot.unpin_giveaway_message()
             await ctx.send(f"Giveaway '{result}' was cancelled. No winner was chosen.")
         elif action == "reroll":
             if not is_mod_or_broadcaster(ctx):
@@ -642,6 +648,7 @@ class CowBot(commands.Bot):
                 user_write_chat=True,
                 user_bot=True,
                 moderator_read_chatters=True,
+                moderator_manage_chat_messages=True,
             ),
         )
         self.start_time = store.utc_now()
@@ -652,6 +659,7 @@ class CowBot(commands.Bot):
         self._live_status_logged = False
         self._watch_chat_seen: dict[str, float] = {}
         self._watch_scope_warned = False
+        self._pin_scope_warned = False
 
     async def setup_hook(self) -> None:
         store.init_db()
@@ -659,6 +667,7 @@ class CowBot(commands.Bot):
         async def apply_tokens(access: str, refresh: str) -> None:
             persist_twitch_tokens(access, refresh)
             self._watch_scope_warned = False
+            self._pin_scope_warned = False
             await self.add_token(access, refresh)
             await self._subscribe_to_chat()
             print("SimpleCowBot token updated. Watch points can now read chatters if the new scopes were granted.")
@@ -771,13 +780,80 @@ class CowBot(commands.Bot):
                 self.channel_user = users[0]
         await self._subscribe_to_chat()
 
-    async def send_channel_message(self, content: str) -> None:
+    def _bot_access_token(self) -> str:
+        stored, _refresh = store.get_twitch_tokens()
+        return stored or os.getenv("TWITCH_TOKEN") or BOT_TOKEN
+
+    async def _chat_pin_request(self, method: str, message_id: str) -> int:
+        token = strip_oauth_prefix(self._bot_access_token())
+        if not token or self.channel_user is None or not message_id:
+            return 0
+        params = {
+            "broadcaster_id": str(self.channel_user.id),
+            "moderator_id": str(self.bot_id),
+            "message_id": message_id,
+        }
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Client-Id": TWITCH_CLIENT_ID,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.request(
+                    method,
+                    "https://api.twitch.tv/helix/chat/pins",
+                    params=params,
+                    headers=headers,
+                ) as resp:
+                    if resp.status >= 400 and resp.status not in {404, 409}:
+                        body = await resp.text()
+                        print(f"Giveaway pin {method} failed: {resp.status} {body}")
+                        if resp.status == 401 and not self._pin_scope_warned:
+                            print(
+                                "Pinning giveaways needs moderator:manage:chat_messages. "
+                                "Open the dashboard Settings tab and click Authorize SimpleCowBot again."
+                            )
+                            self._pin_scope_warned = True
+                    return resp.status
+        except Exception as exc:
+            print(f"Giveaway pin {method} failed: {exc}")
+            return 0
+
+    async def pin_giveaway_message(self, message_id: str | None) -> None:
+        await self.unpin_giveaway_message()
+        pin_id = str(message_id or "").strip()
+        if not pin_id:
+            return
+        status = await self._chat_pin_request("PUT", pin_id)
+        if status in {204, 409}:
+            store.set_giveaway_pin_id(pin_id)
+            print(f"Giveaway message pinned | {pin_id}")
+
+    async def unpin_giveaway_message(self) -> None:
+        pin_id = store.get_giveaway_pin_id()
+        if pin_id:
+            await self._chat_pin_request("DELETE", pin_id)
+        store.set_giveaway_pin_id("")
+
+    async def send_channel_message(
+        self,
+        content: str,
+        *,
+        pin_giveaway: bool = False,
+        unpin_giveaway: bool = False,
+    ) -> None:
+        if unpin_giveaway:
+            await self.unpin_giveaway_message()
         if self.channel_user is None:
             return
+        sent = None
         try:
-            await self.channel_user.send_message(content, sender=self.bot_id, token_for=self.bot_id)
+            sent = await self.channel_user.send_message(content, sender=self.bot_id, token_for=self.bot_id)
         except Exception as exc:
             print(f"Failed to send channel message: {exc}")
+            return
+        if pin_giveaway:
+            await self.pin_giveaway_message(getattr(sent, "id", None))
 
     async def _run_scheduled_messages(self) -> None:
         while True:
@@ -962,4 +1038,4 @@ class CowBot(commands.Bot):
 if __name__ == "__main__":
     store.init_db()
     bot = CowBot()
-    bot.run()
+    bot.run(with_adapter=False)
