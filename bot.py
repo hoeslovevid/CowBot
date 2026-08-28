@@ -320,13 +320,19 @@ class CowCommands(commands.Component):
                 await ctx.send("Only mods and the broadcaster can start giveaways.")
                 return
             if not name:
-                await ctx.send(f"Usage: {store.primary_prefix()}giveaway start <name>")
+                await ctx.send(f"Usage: {store.primary_prefix()}giveaway start <name> [winners]")
                 return
-            success, result = store.start_giveaway(name)
+            winner_count = 1
+            parts = name.rsplit(None, 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                name, winner_count = parts[0], int(parts[1])
+            success, result = store.start_giveaway(name, winner_count)
             if not success:
                 await ctx.send(result or "Could not start giveaway.")
                 return
-            await ctx.send(f"Giveaway '{name}' started! Type {store.primary_prefix()}giveaway to join.")
+            count = store.get_giveaway_winner_count()
+            extra = f" Drawing {count} winners." if count > 1 else ""
+            await ctx.send(f"Giveaway '{name}' started! Type {store.primary_prefix()}giveaway to join.{extra}")
         elif action == "enter":
             mention = get_author_mention(ctx)
             success, result = store.enter_giveaway(get_author_name(ctx))
@@ -341,9 +347,10 @@ class CowCommands(commands.Component):
             if not is_mod_or_broadcaster(ctx):
                 await ctx.send("Only mods and the broadcaster can end giveaways.")
                 return
-            winner, giveaway_name = store.finish_giveaway()
-            if winner and giveaway_name:
-                await ctx.send(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
+            winners, giveaway_name = store.finish_giveaway()
+            if winners and giveaway_name:
+                label = "winner is" if len(winners) == 1 else "winners are"
+                await ctx.send(f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.")
             else:
                 await ctx.send(giveaway_name or "No giveaway is currently active.")
         elif action == "cancel":
@@ -359,21 +366,29 @@ class CowCommands(commands.Component):
             if not is_mod_or_broadcaster(ctx):
                 await ctx.send("Only mods and the broadcaster can reroll giveaways.")
                 return
-            winner, giveaway_name, _entries = store.reroll_giveaway()
-            if not winner or not giveaway_name:
+            winners, giveaway_name, _entries, _replaced = store.reroll_giveaway(name)
+            if not winners or not giveaway_name:
                 await ctx.send(giveaway_name or "There is no giveaway to reroll.")
                 return
-            winner, giveaway_name, _is_reroll = store.complete_giveaway_draw()
-            if winner and giveaway_name:
-                await ctx.send(f"Giveaway '{giveaway_name}' was rerolled! The new winner is {winner}.")
+            winners, giveaway_name, is_reroll, replaced, drawn_winner = store.complete_giveaway_draw()
+            if winners and giveaway_name:
+                if is_reroll and replaced:
+                    await ctx.send(
+                        f"Giveaway '{giveaway_name}' reroll: {store.mention_user(replaced)} is out. "
+                        f"The new winner is {store.mention_user(drawn_winner or winners[0])}."
+                    )
+                else:
+                    await ctx.send(
+                        f"Giveaway '{giveaway_name}' was rerolled! The new winner is {store.format_winners(winners)}."
+                    )
             else:
                 await ctx.send(giveaway_name or "Could not reroll the giveaway.")
         else:
             await ctx.send(
                 f"Giveaway commands: {store.primary_prefix()}giveaway, "
-                f"{store.primary_prefix()}giveaway start <name>, "
+                f"{store.primary_prefix()}giveaway start <name> [winners], "
                 f"{store.primary_prefix()}giveaway end, {store.primary_prefix()}giveaway cancel, "
-                f"{store.primary_prefix()}giveaway reroll"
+                f"{store.primary_prefix()}giveaway reroll [user]"
             )
 
     @commands.command(name="quote")

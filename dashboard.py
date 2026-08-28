@@ -40,6 +40,9 @@ EMPTY_STATUS = {
     "giveaway_drawing": False,
     "giveaway_entries": [],
     "giveaway_entry_count": 0,
+    "giveaway_winner_count": 1,
+    "giveaway_winners": [],
+    "last_giveaway_name": None,
     "last_giveaway_winner": None,
     "leaderboard": [],
     "settings": {
@@ -278,6 +281,7 @@ def manage_giveaway():
         success, error = post_bot("/api/giveaway", {
             "action": "start",
             "name": data.get("giveaway_name"),
+            "count": data.get("giveaway_winners"),
         })
         return finish(success, "Giveaway started in chat.", error)
     if action == "cancel":
@@ -289,8 +293,12 @@ def manage_giveaway():
 
 @app.route("/giveaway/draw", methods=["POST"])
 def draw_giveaway():
-    success, data = post_bot_data("/api/giveaway", {"action": "draw"})
-    return jsonify(data), 200 if success else 400
+    data = posted()
+    success, result = post_bot_data("/api/giveaway", {
+        "action": "draw",
+        "count": data.get("count") or data.get("giveaway_winners"),
+    })
+    return jsonify(result), 200 if success else 400
 
 
 @app.route("/giveaway/complete", methods=["POST"])
@@ -301,8 +309,12 @@ def complete_giveaway():
 
 @app.route("/giveaway/reroll", methods=["POST"])
 def reroll_giveaway():
-    success, data = post_bot_data("/api/giveaway", {"action": "reroll"})
-    return jsonify(data), 200 if success else 400
+    data = posted()
+    success, result = post_bot_data("/api/giveaway", {
+        "action": "reroll",
+        "replace": data.get("replace"),
+    })
+    return jsonify(result), 200 if success else 400
 
 
 @app.route("/overlay/giveaway")

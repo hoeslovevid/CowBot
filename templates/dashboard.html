@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=7">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=8">
 </head>
 <body data-prefix="{{ status.settings.primary_prefix }}">
   <div class="spots" aria-hidden="true"></div>
@@ -99,17 +99,23 @@
         <section class="card wide{% if not status.features.giveaway.enabled %} is-off{% endif %}" data-module-card="giveaway">
           <div class="card-head">
             <h2>Giveaway</h2>
-            <p>Free entry, then spin the wheel for a winner</p>
+            <p>Free entry, then spin the wheel for one or more winners</p>
           </div>
           <div class="live-box" data-live="giveaway_live"></div>
           <form id="giveaway-form" class="stack js-form" data-action="{{ url_for('manage_giveaway') }}">
-            <label>Name
-              <input name="giveaway_name" placeholder="keyboard-drop">
-            </label>
+            <div class="form-grid">
+              <label>Name
+                <input name="giveaway_name" placeholder="keyboard-drop">
+              </label>
+              <label>Winners
+                <input name="giveaway_winners" type="number" min="1" max="25" value="1">
+                <span class="field-hint">How many names to draw</span>
+              </label>
+            </div>
             <div class="actions">
               <button type="submit" name="action" value="start" class="primary">Start giveaway</button>
-              <button type="button" class="ghost" id="pick-giveaway-winner">Pick winner</button>
-              <button type="button" class="ghost" id="reroll-giveaway">Reroll</button>
+              <button type="button" class="ghost" id="pick-giveaway-winner">Pick winners</button>
+              <button type="button" class="ghost" id="reroll-giveaway">Reroll last</button>
               <button type="submit" name="action" value="cancel" class="ghost" data-confirm="Cancel this giveaway with no winner?">Cancel</button>
             </div>
           </form>
@@ -343,7 +349,7 @@
       </div>
     </div>
   </div>
-  <script src="{{ url_for('static', filename='wheel.js') }}?v=7"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=7"></script>
+  <script src="{{ url_for('static', filename='wheel.js') }}?v=8"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=8"></script>
 </body>
 </html>

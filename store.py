@@ -470,19 +470,76 @@ def upsert_config(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
-def start_giveaway(name: str) -> tuple[bool, str | None]:
+MAX_GIVEAWAY_WINNERS = 25
+
+
+def parse_winner_count(raw, default: int = 1) -> int:
+    count = parse_non_negative_int(str(raw if raw is not None else default), default)
+    if count < 1:
+        count = 1
+    return min(count, MAX_GIVEAWAY_WINNERS)
+
+
+def _winner_list(raw: str | None) -> list[str]:
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, list):
+            names = [normalize_user(str(item)) for item in data]
+            return [name for name in names if name not in {"", "unknown"}]
+    names = [normalize_user(part) for part in text.split(",")]
+    return [name for name in names if name not in {"", "unknown"}]
+
+
+def _dump_winners(names: list[str]) -> str:
+    return json.dumps(list(names), separators=(",", ":"))
+
+
+def mention_user(name: str | None) -> str:
+    user = normalize_user(name)
+    if not user or user == "unknown":
+        return str(name or "")
+    return f"@{user}"
+
+
+def format_winners(names: list[str]) -> str:
+    tagged = [mention_user(name) for name in names]
+    tagged = [name for name in tagged if name]
+    if not tagged:
+        return ""
+    if len(tagged) == 1:
+        return tagged[0]
+    if len(tagged) == 2:
+        return f"{tagged[0]} and {tagged[1]}"
+    return f"{', '.join(tagged[:-1])}, and {tagged[-1]}"
+
+
+def start_giveaway(name: str, winner_count: int | str | None = 1) -> tuple[bool, str | None]:
     giveaway_name = normalize_user(name)
     if not giveaway_name or giveaway_name == "unknown":
         return False, "Giveaway name cannot be empty."
+    count = parse_winner_count(winner_count, 1)
     with db_session() as conn:
-        if get_config_value(conn, "pending_giveaway_winner"):
+        if get_config_value(conn, "pending_giveaway_winner") or get_config_value(conn, "pending_giveaway_winners"):
             return False, "A winner is being drawn right now."
         if get_config_value(conn, "active_giveaway"):
             return False, "A giveaway is already running."
         conn.execute("DELETE FROM giveaway_entries WHERE giveaway_name = ?", (giveaway_name,))
         upsert_config(conn, "active_giveaway", giveaway_name)
+        upsert_config(conn, "giveaway_winner_count", str(count))
         upsert_config(conn, "giveaway_excluded_winners", "")
+        upsert_config(conn, "pending_giveaway_winner", "")
+        upsert_config(conn, "pending_giveaway_winners", "")
+        upsert_config(conn, "pending_giveaway_name", "")
         upsert_config(conn, "pending_giveaway_reroll", "")
+        upsert_config(conn, "pending_giveaway_replace", "")
+        upsert_config(conn, "last_giveaway_winner", "")
+        upsert_config(conn, "last_giveaway_winners", "")
     return True, giveaway_name
 
 
@@ -518,9 +575,30 @@ def get_giveaway_entries(giveaway_name: str | None = None) -> list[str]:
     return [row["user"] for row in rows]
 
 
+def get_giveaway_winner_count() -> int:
+    return parse_winner_count(get_setting("giveaway_winner_count", "1"), 1)
+
+
+def get_recorded_giveaway_winners() -> list[str]:
+    recorded = _winner_list(get_setting("last_giveaway_winners", ""))
+    if recorded:
+        return recorded
+    return _winner_list(get_setting("last_giveaway_winner", ""))
+
+
+def get_giveaway_winners() -> list[str]:
+    pending = _winner_list(get_setting("pending_giveaway_winners", ""))
+    if pending:
+        return pending
+    return get_recorded_giveaway_winners()
+
+
 def get_pending_giveaway() -> tuple[str | None, str | None]:
-    winner = get_setting("pending_giveaway_winner", "")
+    winners = _winner_list(get_setting("pending_giveaway_winners", ""))
     name = get_setting("pending_giveaway_name", "")
+    if winners and name:
+        return winners[0], name
+    winner = get_setting("pending_giveaway_winner", "")
     if winner and name:
         return winner, name
     return None, None
@@ -540,18 +618,46 @@ def _excluded_winners(conn: sqlite3.Connection, extra: str | None = None) -> set
     return names
 
 
-def _record_giveaway_winner(conn: sqlite3.Connection, name: str, winner: str) -> None:
-    upsert_config(conn, "last_giveaway_winner", winner)
+def _save_recorded_winners(conn: sqlite3.Connection, name: str, winners: list[str]) -> None:
+    upsert_config(conn, "last_giveaway_winners", _dump_winners(winners))
+    upsert_config(conn, "last_giveaway_winner", ", ".join(winners))
     upsert_config(conn, "last_giveaway_name", name)
-    excluded = _excluded_winners(conn, winner)
-    upsert_config(conn, "giveaway_excluded_winners", ",".join(sorted(excluded)))
+    upsert_config(conn, "giveaway_excluded_winners", ",".join(sorted({normalize_user(user) for user in winners})))
 
 
-def draw_giveaway() -> tuple[str | None, str | None, list[str]]:
-    pending_winner, pending_name = get_pending_giveaway()
-    if pending_winner and pending_name:
-        return pending_winner, pending_name, get_giveaway_entries(pending_name)
+def _clear_pending_draw(conn: sqlite3.Connection) -> None:
+    upsert_config(conn, "pending_giveaway_winner", "")
+    upsert_config(conn, "pending_giveaway_winners", "")
+    upsert_config(conn, "pending_giveaway_name", "")
+    upsert_config(conn, "pending_giveaway_reroll", "")
+    upsert_config(conn, "pending_giveaway_replace", "")
 
+
+def _set_pending_draw(
+    conn: sqlite3.Connection,
+    name: str,
+    winners: list[str],
+    *,
+    reroll: bool = False,
+    replace: str | None = None,
+    drawn: str | None = None,
+) -> None:
+    upsert_config(conn, "active_giveaway", "")
+    upsert_config(conn, "pending_giveaway_winner", drawn or (winners[0] if winners else ""))
+    upsert_config(conn, "pending_giveaway_winners", _dump_winners(winners))
+    upsert_config(conn, "pending_giveaway_name", name)
+    upsert_config(conn, "pending_giveaway_reroll", "1" if reroll else "")
+    upsert_config(conn, "pending_giveaway_replace", replace or "")
+    upsert_config(conn, "last_giveaway_name", name)
+
+
+def draw_giveaway(count: int | str | None = None) -> tuple[list[str] | None, str | None, list[str]]:
+    pending = _winner_list(get_setting("pending_giveaway_winners", ""))
+    pending_name = get_setting("pending_giveaway_name", "")
+    if pending and pending_name:
+        return pending, pending_name, get_giveaway_entries(pending_name)
+
+    requested = parse_winner_count(count, get_giveaway_winner_count())
     with db_session() as conn:
         giveaway_name = get_config_value(conn, "active_giveaway")
         if not giveaway_name:
@@ -560,68 +666,107 @@ def draw_giveaway() -> tuple[str | None, str | None, list[str]]:
             "SELECT user FROM giveaway_entries WHERE giveaway_name = ?",
             (giveaway_name,),
         ).fetchall()
-        if not rows:
-            return None, f"No entries for giveaway '{giveaway_name}'.", []
-        winner = random.choice(rows)["user"]
         entries = [row["user"] for row in rows]
-        upsert_config(conn, "active_giveaway", "")
-        upsert_config(conn, "pending_giveaway_winner", winner)
-        upsert_config(conn, "pending_giveaway_name", giveaway_name)
-        upsert_config(conn, "pending_giveaway_reroll", "")
-        upsert_config(conn, "last_giveaway_name", giveaway_name)
-    publish_overlay_spin(winner, giveaway_name, entries, reroll=False)
-    return winner, giveaway_name, entries
+        if not entries:
+            return None, f"No entries for giveaway '{giveaway_name}'.", []
+        if len(entries) < requested:
+            return None, f"Need at least {requested} entries to draw {requested} winners.", entries
+        winners = random.sample(entries, requested)
+        upsert_config(conn, "giveaway_winner_count", str(requested))
+        _set_pending_draw(conn, giveaway_name, winners)
+    publish_overlay_spin(winners[0], giveaway_name, entries, reroll=False, winners=winners)
+    return winners, giveaway_name, entries
 
 
-def reroll_giveaway() -> tuple[str | None, str | None, list[str]]:
+def reroll_giveaway(replace: str | None = None) -> tuple[list[str] | None, str | None, list[str], str | None]:
     with db_session() as conn:
-        pending_winner = get_config_value(conn, "pending_giveaway_winner")
-        if get_config_value(conn, "active_giveaway") and not pending_winner:
-            return None, "Pick a winner first, then you can reroll.", []
+        if get_config_value(conn, "active_giveaway") and not (
+            get_config_value(conn, "pending_giveaway_winners")
+            or get_config_value(conn, "pending_giveaway_winner")
+            or get_config_value(conn, "last_giveaway_winners")
+            or get_config_value(conn, "last_giveaway_winner")
+        ):
+            return None, "Pick a winner first, then you can reroll.", [], None
         giveaway_name = (
             get_config_value(conn, "pending_giveaway_name")
             or get_config_value(conn, "last_giveaway_name")
         )
         if not giveaway_name:
-            return None, "There is no giveaway to reroll.", []
+            return None, "There is no giveaway to reroll.", [], None
+        current = (
+            _winner_list(get_config_value(conn, "pending_giveaway_winners"))
+            or _winner_list(get_config_value(conn, "last_giveaway_winners"))
+            or _winner_list(get_config_value(conn, "last_giveaway_winner"))
+            or _winner_list(get_config_value(conn, "pending_giveaway_winner"))
+        )
+        if not current:
+            return None, "There is no winner to reroll.", [], None
+        replace_name = normalize_user(replace) if replace else normalize_user(current[-1])
+        current_lookup = {normalize_user(user): user for user in current}
+        if replace_name not in current_lookup:
+            return None, f"{replace_name} is not a current winner.", [], None
         rows = conn.execute(
             "SELECT user FROM giveaway_entries WHERE giveaway_name = ?",
             (giveaway_name,),
         ).fetchall()
         entries = [row["user"] for row in rows]
-        excluded = _excluded_winners(conn, pending_winner or get_config_value(conn, "last_giveaway_winner"))
-        remaining = [user for user in entries if normalize_user(user) not in excluded]
+        blocked = {normalize_user(user) for user in current}
+        remaining = [user for user in entries if normalize_user(user) not in blocked]
         if not remaining:
-            return None, "No other entries left to reroll.", entries
+            return None, "No other entries left to reroll.", entries, None
         winner = random.choice(remaining)
-        upsert_config(conn, "active_giveaway", "")
-        upsert_config(conn, "pending_giveaway_winner", winner)
-        upsert_config(conn, "pending_giveaway_name", giveaway_name)
-        upsert_config(conn, "pending_giveaway_reroll", "1")
-        upsert_config(conn, "last_giveaway_name", giveaway_name)
-    publish_overlay_spin(winner, giveaway_name, remaining, reroll=True)
-    return winner, giveaway_name, remaining
+        next_winners = []
+        swapped = False
+        for user in current:
+            if not swapped and normalize_user(user) == replace_name:
+                next_winners.append(winner)
+                swapped = True
+            else:
+                next_winners.append(user)
+        if not swapped:
+            next_winners = current + [winner]
+        _set_pending_draw(
+            conn,
+            giveaway_name,
+            next_winners,
+            reroll=True,
+            replace=replace_name,
+            drawn=winner,
+        )
+    publish_overlay_spin(
+        winner,
+        giveaway_name,
+        remaining,
+        reroll=True,
+        winners=[winner],
+        replaced=replace_name,
+    )
+    return [winner], giveaway_name, remaining, replace_name
 
 
-def complete_giveaway_draw() -> tuple[str | None, str | None, bool]:
+def complete_giveaway_draw() -> tuple[list[str] | None, str | None, bool, str | None, str | None]:
     with db_session() as conn:
-        winner = get_config_value(conn, "pending_giveaway_winner")
+        winners = (
+            _winner_list(get_config_value(conn, "pending_giveaway_winners"))
+            or _winner_list(get_config_value(conn, "pending_giveaway_winner"))
+        )
+        drawn = get_config_value(conn, "pending_giveaway_winner") or (winners[0] if winners else "")
         name = get_config_value(conn, "pending_giveaway_name")
         is_reroll = get_config_value(conn, "pending_giveaway_reroll") == "1"
-        if not winner or not name:
-            return None, "No giveaway draw is waiting to finish.", False
-        _record_giveaway_winner(conn, name, winner)
-        upsert_config(conn, "pending_giveaway_winner", "")
-        upsert_config(conn, "pending_giveaway_name", "")
-        upsert_config(conn, "pending_giveaway_reroll", "")
-    return winner, name, is_reroll
+        replaced = get_config_value(conn, "pending_giveaway_replace") or None
+        if not winners or not name:
+            return None, "No giveaway draw is waiting to finish.", False, None, None
+        _save_recorded_winners(conn, name, winners)
+        _clear_pending_draw(conn)
+    return winners, name, is_reroll, replaced, drawn or winners[0]
 
 
-def finish_giveaway() -> tuple[str | None, str | None]:
+def finish_giveaway() -> tuple[list[str] | None, str | None]:
     pending_winner, pending_name = get_pending_giveaway()
     if pending_winner and pending_name:
-        winner, name, _is_reroll = complete_giveaway_draw()
-        return winner, name
+        winners, name, _is_reroll, _replaced, _drawn = complete_giveaway_draw()
+        return winners, name
+    requested = get_giveaway_winner_count()
     with db_session() as conn:
         giveaway_name = get_config_value(conn, "active_giveaway")
         if not giveaway_name:
@@ -631,13 +776,15 @@ def finish_giveaway() -> tuple[str | None, str | None]:
             (giveaway_name,),
         ).fetchall()
         upsert_config(conn, "active_giveaway", "")
-        if not rows:
-            return None, f"No entries for giveaway '{giveaway_name}'."
-        winner = random.choice(rows)["user"]
         entries = [row["user"] for row in rows]
-        _record_giveaway_winner(conn, giveaway_name, winner)
-    publish_overlay_spin(winner, giveaway_name, entries, reroll=False)
-    return winner, giveaway_name
+        if not entries:
+            return None, f"No entries for giveaway '{giveaway_name}'."
+        if len(entries) < requested:
+            return None, f"Need at least {requested} entries to draw {requested} winners."
+        winners = random.sample(entries, requested)
+        _save_recorded_winners(conn, giveaway_name, winners)
+    publish_overlay_spin(winners[0], giveaway_name, entries, reroll=False, winners=winners)
+    return winners, giveaway_name
 
 
 def cancel_giveaway() -> tuple[bool, str | None]:
@@ -649,17 +796,26 @@ def cancel_giveaway() -> tuple[bool, str | None]:
             return False, "No giveaway is currently active."
         conn.execute("DELETE FROM giveaway_entries WHERE giveaway_name = ?", (name,))
         upsert_config(conn, "active_giveaway", "")
-        upsert_config(conn, "pending_giveaway_winner", "")
-        upsert_config(conn, "pending_giveaway_name", "")
-        upsert_config(conn, "pending_giveaway_reroll", "")
         upsert_config(conn, "overlay_giveaway_spin", "")
+        _clear_pending_draw(conn)
     return True, name
 
 
-def publish_overlay_spin(winner: str, name: str, entries: list[str], *, reroll: bool = False) -> dict:
+def publish_overlay_spin(
+    winner: str,
+    name: str,
+    entries: list[str],
+    *,
+    reroll: bool = False,
+    winners: list[str] | None = None,
+    replaced: str | None = None,
+) -> dict:
+    chosen = list(winners or [winner])
     payload = {
         "id": uuid.uuid4().hex,
         "winner": winner,
+        "winners": chosen,
+        "replaced": replaced or "",
         "name": name,
         "entries": list(entries),
         "reroll": reroll,
@@ -690,26 +846,25 @@ def get_active_giveaway() -> str | None:
 def current_giveaway_state() -> dict:
     active = get_active_giveaway()
     pending_winner, pending_name = get_pending_giveaway()
-    name = active or pending_name
-    if not name:
-        return {
-            "name": None,
-            "open": False,
-            "drawing": False,
-            "entries": [],
-            "count": 0,
-        }
-    entries = get_giveaway_entries(name)
+    winners = get_recorded_giveaway_winners()
+    name = active or pending_name or (get_last_giveaway_name() if winners else None)
+    entries = get_giveaway_entries(name) if name else []
     return {
-        "name": name,
+        "name": name if (active or pending_name) else None,
+        "last_name": get_last_giveaway_name(),
         "open": bool(active),
         "drawing": bool(pending_winner),
         "entries": entries,
         "count": len(entries),
+        "winner_count": get_giveaway_winner_count(),
+        "winners": winners,
     }
 
 
 def get_last_giveaway_winner() -> str | None:
+    winners = get_recorded_giveaway_winners()
+    if winners:
+        return ", ".join(winners)
     value = get_setting("last_giveaway_winner", "")
     return value or None
 
@@ -1421,6 +1576,9 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
         "giveaway_drawing": giveaway["drawing"],
         "giveaway_entries": giveaway["entries"],
         "giveaway_entry_count": giveaway["count"],
+        "giveaway_winner_count": giveaway["winner_count"],
+        "giveaway_winners": giveaway["winners"],
+        "last_giveaway_name": giveaway["last_name"],
         "last_giveaway_winner": get_last_giveaway_winner(),
         "leaderboard": [
             {"user": row["user"], "points": row["points"]}

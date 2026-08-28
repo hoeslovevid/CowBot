@@ -150,46 +150,67 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
         action = (payload.get("action") or "").lower()
         if action == "start":
             name = (payload.get("name") or "").strip()
-            success, result = store.start_giveaway(name)
+            success, result = store.start_giveaway(name, payload.get("count"))
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
-            await announce(f"Giveaway '{result}' started! Type {store.primary_prefix()}giveaway to join.")
-            return web.json_response({"ok": True, "name": result})
+            count = store.get_giveaway_winner_count()
+            extra = f" Drawing {count} winners." if count > 1 else ""
+            await announce(f"Giveaway '{result}' started! Type {store.primary_prefix()}giveaway to join.{extra}")
+            return web.json_response({"ok": True, "name": result, "count": count})
         if action == "draw":
-            winner, giveaway_name, entries = store.draw_giveaway()
-            if winner and giveaway_name:
+            winners, giveaway_name, entries = store.draw_giveaway(payload.get("count"))
+            if winners and giveaway_name:
                 return web.json_response({
                     "ok": True,
-                    "winner": winner,
+                    "winner": winners[0],
+                    "winners": winners,
                     "name": giveaway_name,
                     "entries": entries,
                 })
             return web.json_response({"ok": False, "error": giveaway_name or "No giveaway is currently active."}, status=400)
         if action == "complete":
-            winner, giveaway_name, is_reroll = store.complete_giveaway_draw()
-            if winner and giveaway_name:
-                if is_reroll:
-                    await announce(f"Giveaway '{giveaway_name}' was rerolled! The new winner is {winner}.")
+            winners, giveaway_name, is_reroll, replaced, drawn_winner = store.complete_giveaway_draw()
+            if winners and giveaway_name:
+                if is_reroll and replaced:
+                    await announce(
+                        f"Giveaway '{giveaway_name}' reroll: {store.mention_user(replaced)} is out. "
+                        f"The new winner is {store.mention_user(drawn_winner or winners[0])}."
+                    )
+                elif is_reroll:
+                    await announce(
+                        f"Giveaway '{giveaway_name}' was rerolled! The new winner is {store.format_winners(winners)}."
+                    )
                 else:
-                    await announce(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
-                return web.json_response({"ok": True, "winner": winner, "name": giveaway_name, "reroll": is_reroll})
-            return web.json_response({"ok": False, "error": giveaway_name or "No giveaway draw is waiting to finish."}, status=400)
-        if action == "reroll":
-            winner, giveaway_name, entries = store.reroll_giveaway()
-            if winner and giveaway_name:
+                    label = "winner is" if len(winners) == 1 else "winners are"
+                    await announce(f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.")
                 return web.json_response({
                     "ok": True,
-                    "winner": winner,
+                    "winner": winners[0],
+                    "winners": winners,
+                    "name": giveaway_name,
+                    "reroll": is_reroll,
+                    "replaced": replaced,
+                })
+            return web.json_response({"ok": False, "error": giveaway_name or "No giveaway draw is waiting to finish."}, status=400)
+        if action == "reroll":
+            winners, giveaway_name, entries, replaced = store.reroll_giveaway(payload.get("replace"))
+            if winners and giveaway_name:
+                return web.json_response({
+                    "ok": True,
+                    "winner": winners[0],
+                    "winners": winners,
                     "name": giveaway_name,
                     "entries": entries,
                     "reroll": True,
+                    "replaced": replaced or "",
                 })
             return web.json_response({"ok": False, "error": giveaway_name or "There is no giveaway to reroll."}, status=400)
         if action == "end":
-            winner, giveaway_name = store.finish_giveaway()
-            if winner and giveaway_name:
-                await announce(f"Giveaway '{giveaway_name}' ended! The winner is {winner}.")
-                return web.json_response({"ok": True, "winner": winner, "name": giveaway_name})
+            winners, giveaway_name = store.finish_giveaway()
+            if winners and giveaway_name:
+                label = "winner is" if len(winners) == 1 else "winners are"
+                await announce(f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.")
+                return web.json_response({"ok": True, "winner": winners[0], "winners": winners, "name": giveaway_name})
             return web.json_response({"ok": False, "error": giveaway_name or "No giveaway is currently active."}, status=400)
         if action == "cancel":
             success, result = store.cancel_giveaway()

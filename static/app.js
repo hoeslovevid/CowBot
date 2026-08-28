@@ -62,9 +62,16 @@ function setText(name, value) {
 }
 
 function giveawayMeta(status) {
+  const winners = status.giveaway_winners || [];
   if (status.giveaway_drawing) return `Drawing · ${status.giveaway_entry_count || 0} entered`;
-  if (status.active_giveaway) return `${status.giveaway_entry_count || 0} entered`;
-  if (status.last_giveaway_winner) return `Last winner ${status.last_giveaway_winner}`;
+  if (status.active_giveaway) {
+    const count = Number(status.giveaway_winner_count || 1);
+    return count > 1
+      ? `${status.giveaway_entry_count || 0} entered · ${count} winners`
+      : `${status.giveaway_entry_count || 0} entered`;
+  }
+  if (winners.length === 1) return `Winner ${winners[0]}`;
+  if (winners.length > 1) return `Winners ${winners.join(", ")}`;
   return "No winner yet";
 }
 
@@ -97,21 +104,39 @@ function renderPoll(status) {
   box.innerHTML = `<p class="live-title">${escapeHtml(status.poll_question || status.active_poll)}</p><ul>${rows}</ul>`;
 }
 
+function winnerListHtml(winners) {
+  if (!winners.length) return "";
+  const rows = winners.map((user, index) => `
+    <li class="winner-row">
+      <span>${index + 1}. ${escapeHtml(user)}</span>
+      <button type="button" class="ghost" data-reroll-winner="${escapeHtml(user)}">Reroll</button>
+    </li>
+  `).join("");
+  return `<p class="live-title">${winners.length === 1 ? "Winner" : "Winners"}</p><ul class="winner-list">${rows}</ul>`;
+}
+
 function renderGiveaway(status) {
   const box = document.querySelector("[data-live='giveaway_live']");
   if (!box) return;
-  if (!status.active_giveaway) {
+  const winners = status.giveaway_winners || [];
+  const winnerBlock = winnerListHtml(winners);
+  if (!status.active_giveaway && !status.giveaway_drawing) {
+    if (winnerBlock) {
+      box.innerHTML = `<p class="muted">Giveaway closed. Reroll a specific winner below.</p>${winnerBlock}`;
+      return;
+    }
     box.innerHTML = `<p class="muted">No giveaway running. Start one below, then chat joins with <code>${escapeHtml(prefix())}giveaway</code>.</p>`;
     return;
   }
+  const count = Number(status.giveaway_winner_count || 1);
   const locked = status.giveaway_drawing
-    ? "Entries are locked while a winner is drawn."
-    : `${status.giveaway_entry_count || 0} entered · type <code>${escapeHtml(prefix())}giveaway</code> to join`;
+    ? `Entries are locked. Spinning ${count} winner${count === 1 ? "" : "s"}.`
+    : `${status.giveaway_entry_count || 0} entered${count > 1 ? ` · ${count} winners` : ""} · type <code>${escapeHtml(prefix())}giveaway</code> to join`;
   const entries = (status.giveaway_entries || []).map((user) => `<li>${escapeHtml(user)}</li>`).join("");
   const list = entries
     ? `<ul class="entry-list">${entries}</ul>`
     : `<p class="muted">Waiting for entries. Ask chat to type <code>${escapeHtml(prefix())}giveaway</code>.</p>`;
-  box.innerHTML = `<p class="live-title">${escapeHtml(status.active_giveaway)}</p><p class="muted">${locked}</p>${list}`;
+  box.innerHTML = `<p class="live-title">${escapeHtml(status.active_giveaway)}</p><p class="muted">${locked}</p>${list}${status.giveaway_drawing ? "" : winnerBlock}`;
 }
 
 let customCommands = [];
@@ -267,6 +292,10 @@ function applyStatus(status, { commands = false } = {}) {
   setText("prefix", settings.primary_prefix || "?");
   setText("active_giveaway", status.active_giveaway || "Idle");
   setText("giveaway_meta", giveawayMeta(status));
+  const winnersInput = document.querySelector("[name='giveaway_winners']");
+  if (winnersInput && status.giveaway_open && status.giveaway_winner_count) {
+    winnersInput.value = String(status.giveaway_winner_count);
+  }
   setText("active_poll", status.active_poll || "Idle");
   setText("poll_question", status.poll_question || "No active question");
   setText("active_raffle", status.active_raffle || "Idle");
@@ -459,6 +488,7 @@ function setupGiveawayWheel() {
   if (!modal || !form || !pickButton || !canvas || !disc) return;
 
   let spinning = false;
+  let multiWinner = false;
 
   function resetWheel() {
     modal.hidden = true;
@@ -485,8 +515,12 @@ function setupGiveawayWheel() {
     refreshStatus();
   }
 
-  async function requestDraw(path, fallbackError) {
-    const response = await fetch(path, { method: "POST", headers: JSON_HEADERS });
+  async function requestDraw(path, fallbackError, extra = {}) {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify(extra),
+    });
     const payload = await readJson(response);
     if (!response.ok || !payload.ok) {
       throw new Error(payload.error || fallbackError);
@@ -494,45 +528,72 @@ function setupGiveawayWheel() {
     return payload;
   }
 
-  async function playSpin(payload, { reroll = false } = {}) {
+  function winnerNames(payload) {
+    if (payload.winners && payload.winners.length) return payload.winners;
+    return payload.winner ? [payload.winner] : [];
+  }
+
+  async function playSpin(payload, { reroll = false, index = 0, total = 1 } = {}) {
     const winner = payload.winner;
     const { slices, target } = buildSlices(payload.entries || [], winner);
     drawWheel(canvas, slices);
     modal.hidden = false;
     modal.classList.remove("revealed");
-    title.textContent = reroll ? "Rerolling" : (payload.name ? `Giveaway ${payload.name}` : "Giveaway");
+    title.textContent = reroll
+      ? "Rerolling"
+      : (total > 1 ? `Winner ${index + 1} of ${total}` : (payload.name ? `Giveaway ${payload.name}` : "Giveaway"));
     result.hidden = true;
     closeButton.hidden = true;
     if (rerollButton) rerollButton.hidden = true;
     status.hidden = false;
     status.textContent = reroll
-      ? "Previous winner is out. Spinning again."
-      : "Entries are locked. The wheel picks one name.";
+      ? `${payload.replaced ? `${payload.replaced} is out. ` : ""}Spinning a replacement.`
+      : (total > 1 ? `Spinning winner ${index + 1} of ${total}.` : "Entries are locked. The wheel picks one name.");
 
     const duration = prefersReducedMotion() ? 400 : 6200;
     await spinTo(disc, destinationAngle(disc, slices, target), duration);
 
-    title.textContent = reroll ? "New winner" : "Winner";
+    title.textContent = reroll ? "New winner" : (total > 1 ? `Winner ${index + 1} of ${total}` : "Winner");
     status.hidden = true;
     result.hidden = false;
     result.textContent = winner;
-    closeButton.hidden = false;
-    if (rerollButton) rerollButton.hidden = false;
     modal.classList.add("revealed");
+  }
+
+  async function playSpins(payload, { reroll = false } = {}) {
+    const winners = winnerNames(payload);
+    if (!reroll) multiWinner = winners.length > 1;
+    for (let index = 0; index < winners.length; index += 1) {
+      disc.style.transform = "rotate(0deg)";
+      await playSpin(
+        { ...payload, winner: winners[index] },
+        { reroll, index, total: winners.length },
+      );
+      if (index < winners.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, prefersReducedMotion() ? 250 : 900));
+      }
+    }
+    if (winners.length > 1) {
+      title.textContent = "Winners";
+      result.textContent = winners.join(" · ");
+    }
+    closeButton.hidden = false;
+    if (rerollButton) rerollButton.hidden = multiWinner;
     await completeDraw();
   }
 
   async function startDraw(event) {
     event.preventDefault();
     if (spinning) return;
-    if (!window.confirm("Lock entries and spin a winner? This also plays on the OBS overlay.")) return;
+    const count = Math.max(1, Number(form.querySelector("[name='giveaway_winners']")?.value || 1));
+    const label = count === 1 ? "a winner" : `${count} winners`;
+    if (!window.confirm(`Lock entries and spin ${label}? This also plays on the OBS overlay.`)) return;
     spinning = true;
     pickButton.disabled = true;
     if (cardReroll) cardReroll.disabled = true;
     try {
       const payload = await requestDraw("/giveaway/draw", "Could not draw a winner.");
-      disc.style.transform = "rotate(0deg)";
-      await playSpin(payload);
+      await playSpins(payload);
     } catch (error) {
       showToast(error.message || "Could not draw a winner.", "error");
     }
@@ -541,17 +602,24 @@ function setupGiveawayWheel() {
     if (cardReroll) cardReroll.disabled = false;
   }
 
-  async function startReroll(event) {
-    event.preventDefault();
+  async function startReroll(event, replace) {
+    event?.preventDefault?.();
     if (spinning) return;
-    if (!window.confirm("Reroll and skip previous winners?")) return;
+    const confirmText = replace
+      ? `Reroll ${replace} and skip current winners?`
+      : "Reroll the last winner and skip previous winners?";
+    if (!window.confirm(confirmText)) return;
     spinning = true;
     pickButton.disabled = true;
     if (cardReroll) cardReroll.disabled = true;
     if (rerollButton) rerollButton.disabled = true;
     try {
-      const payload = await requestDraw("/giveaway/reroll", "Could not reroll the giveaway.");
-      await playSpin(payload, { reroll: true });
+      const payload = await requestDraw(
+        "/giveaway/reroll",
+        "Could not reroll the giveaway.",
+        replace ? { replace } : {},
+      );
+      await playSpins(payload, { reroll: true });
     } catch (error) {
       showToast(error.message || "Could not reroll the giveaway.", "error");
     }
@@ -562,8 +630,13 @@ function setupGiveawayWheel() {
   }
 
   pickButton.addEventListener("click", startDraw);
-  if (cardReroll) cardReroll.addEventListener("click", startReroll);
-  if (rerollButton) rerollButton.addEventListener("click", startReroll);
+  if (cardReroll) cardReroll.addEventListener("click", (event) => startReroll(event));
+  if (rerollButton) rerollButton.addEventListener("click", (event) => startReroll(event));
+  document.querySelector("[data-live='giveaway_live']")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-reroll-winner]");
+    if (!button) return;
+    startReroll(event, button.dataset.rerollWinner);
+  });
   closeButton.addEventListener("click", resetWheel);
   modal.addEventListener("click", (event) => {
     if (event.target === modal && !closeButton.hidden) resetWheel();

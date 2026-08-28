@@ -22,27 +22,42 @@ function setupOverlayWheel() {
   let primed = false;
 
   async function playSpin(payload) {
-    const winner = payload.winner;
+    const winners = (payload.winners && payload.winners.length) ? payload.winners : [payload.winner];
     const reroll = Boolean(payload.reroll);
-    const { slices, target } = buildSlices(payload.entries || [], winner);
-    disc.style.transform = "rotate(0deg)";
     stage.hidden = false;
     stage.classList.remove("revealed", "leaving");
     void stage.offsetWidth;
-    drawWheel(canvas, slices);
-    kicker.textContent = reroll ? "Reroll" : "Giveaway";
-    title.textContent = reroll ? "Spinning again" : (payload.name ? payload.name : "Giveaway");
-    winnerLabel.hidden = true;
-    winnerLabel.textContent = "";
 
-    const duration = prefersReducedMotion() ? 400 : 6500;
-    await spinTo(disc, destinationAngle(disc, slices, target), duration);
+    for (let index = 0; index < winners.length; index += 1) {
+      const winner = winners[index];
+      const { slices, target } = buildSlices(payload.entries || [], winner);
+      disc.style.transform = "rotate(0deg)";
+      drawWheel(canvas, slices);
+      kicker.textContent = reroll
+        ? (payload.replaced ? `${payload.replaced} is out` : "Reroll")
+        : (winners.length > 1 ? `Winner ${index + 1} of ${winners.length}` : "Giveaway");
+      title.textContent = reroll
+        ? "Spinning again"
+        : (payload.name ? payload.name : "Giveaway");
+      winnerLabel.hidden = true;
+      winnerLabel.textContent = "";
+      stage.classList.remove("revealed");
 
-    title.textContent = reroll ? "New winner" : "Winner";
-    winnerLabel.hidden = false;
-    winnerLabel.textContent = winner;
-    stage.classList.add("revealed");
-    await sleep(prefersReducedMotion() ? 1800 : 9000);
+      const duration = prefersReducedMotion() ? 400 : 6500;
+      await spinTo(disc, destinationAngle(disc, slices, target), duration);
+
+      title.textContent = reroll ? "New winner" : (winners.length > 1 ? `Winner ${index + 1} of ${winners.length}` : "Winner");
+      winnerLabel.hidden = false;
+      winnerLabel.textContent = winner;
+      stage.classList.add("revealed");
+      await sleep(prefersReducedMotion() ? 900 : (index === winners.length - 1 ? 9000 : 2800));
+    }
+
+    if (winners.length > 1) {
+      title.textContent = "Winners";
+      winnerLabel.textContent = winners.join(" · ");
+      await sleep(prefersReducedMotion() ? 1200 : 4000);
+    }
     stage.classList.add("leaving");
     await sleep(700);
     stage.hidden = true;
