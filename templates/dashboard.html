@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=8">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=10">
 </head>
 <body data-prefix="{{ status.settings.primary_prefix }}">
   <div class="spots" aria-hidden="true"></div>
@@ -258,7 +258,7 @@
         <section class="card">
           <div class="card-head">
             <h2>Economy</h2>
-            <p>Daily rewards, starting points, and raffle defaults</p>
+            <p>Daily rewards, watch points, starting balance, and raffle defaults</p>
           </div>
           <form class="form-grid js-form" data-action="{{ url_for('update_settings') }}">
             <label>Daily min
@@ -272,6 +272,10 @@
             </label>
             <label>Default raffle cost
               <input name="default_raffle_cost" type="number" min="1" value="{{ status.settings.default_raffle_cost }}">
+            </label>
+            <label>Watch reward (every 5 min)
+              <input name="watchtime_points" type="number" min="0" value="{{ status.settings.watchtime_points }}">
+              <span class="field-hint">Points while the stream is live. 0 turns this off.</span>
             </label>
             <label class="span-2">Command prefixes
               <input name="prefixes" value="{{ status.settings.prefixes }}" placeholder="?, !">
@@ -313,6 +317,23 @@
 
         <section class="card wide">
           <div class="card-head">
+            <h2>Authorize SimpleCowBot</h2>
+            <p>Reconnect the bot account so watch points can see who’s in chat</p>
+          </div>
+          <div class="stack">
+            <p class="muted">In the Twitch developer console for this app, add this OAuth Redirect URL, then click authorize while logged into <strong>SimpleCowBot</strong>.</p>
+            <label>Twitch redirect URL
+              <input id="oauth-redirect-url" readonly value="{{ oauth_redirect_url }}">
+            </label>
+            <div class="actions">
+              <a class="primary" href="{{ url_for('twitch_oauth_start') }}">Authorize SimpleCowBot</a>
+              <button type="button" class="ghost" data-copy-target="oauth-redirect-url">Copy redirect URL</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card wide">
+          <div class="card-head">
             <h2>OBS overlay</h2>
             <p>Browser source for the giveaway wheel</p>
           </div>
@@ -321,7 +342,7 @@
               <input id="overlay-url" readonly value="{{ overlay_url }}">
             </label>
             <div class="actions">
-              <button type="button" class="ghost" id="copy-overlay-url">Copy OBS URL</button>
+              <button type="button" class="ghost" data-copy-target="overlay-url">Copy OBS URL</button>
             </div>
             <p class="muted">Browser Source, 1080×1080, check <strong>Transparent</strong>, and uncheck <strong>Shutdown source when not visible</strong>. Leave it in the scene you stream. The wheel stays hidden until you pick a winner on Live.</p>
           </div>
@@ -349,7 +370,7 @@
       </div>
     </div>
   </div>
-  <script src="{{ url_for('static', filename='wheel.js') }}?v=8"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=8"></script>
+  <script src="{{ url_for('static', filename='wheel.js') }}?v=10"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=10"></script>
 </body>
 </html>

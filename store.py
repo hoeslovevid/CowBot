@@ -206,6 +206,7 @@ def init_db():
         _ensure_column(conn, "custom_commands", "cooldown_seconds", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "custom_commands", "use_count", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "custom_commands", "last_used_at", "TEXT")
+        _ensure_column(conn, "points", "last_watch_reward", "TEXT")
         if not conn.execute("SELECT 1 FROM config WHERE key = 'command_prefixes'").fetchone():
             env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?,!") or ("?", "!")
             upsert_config(conn, "command_prefixes", ",".join(env_prefixes))
@@ -470,6 +471,18 @@ def upsert_config(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
+WATCH_POINTS_SECONDS = 300
+WATCH_POINTS_COOLDOWN = timedelta(minutes=4)
+WATCH_POINT_BOTS = {
+    "streamelements",
+    "streamlabs",
+    "nightbot",
+    "moobot",
+    "fossabot",
+    "sery_bot",
+    "wizebot",
+    "botisimo",
+}
 MAX_GIVEAWAY_WINNERS = 25
 
 
@@ -896,6 +909,30 @@ def get_setting(key: str, default: str) -> str:
         return row["value"] if row else default
 
 
+BOT_OAUTH_SCOPES = (
+    "user:read:chat",
+    "user:write:chat",
+    "user:bot",
+    "moderator:read:chatters",
+)
+
+
+def get_twitch_tokens() -> tuple[str, str]:
+    access = get_setting("twitch_user_token", "").strip()
+    refresh = get_setting("twitch_refresh_token", "").strip()
+    return access, refresh
+
+
+def set_twitch_tokens(access_token: str, refresh_token: str) -> None:
+    access = str(access_token or "").strip()
+    refresh = str(refresh_token or "").strip()
+    if not access:
+        return
+    set_setting("twitch_user_token", access)
+    if refresh:
+        set_setting("twitch_refresh_token", refresh)
+
+
 def set_setting(key: str, value: str):
     with db_session() as conn:
         upsert_config(conn, key, value)
@@ -938,7 +975,7 @@ def set_command_prefixes(raw: str) -> tuple[bool, str | None]:
 FEATURE_MODULES = {
     "economy": {
         "label": "Economy",
-        "blurb": "Points, daily, gamble, roulette, transfer, and the leaderboard",
+        "blurb": "Points, daily, watch rewards, gamble, roulette, transfer, and the leaderboard",
         "off_message": "Economy commands are currently disabled.",
     },
     "giveaway": {
@@ -1476,6 +1513,40 @@ def render_custom_command(
     return text[:500]
 
 
+def get_watchtime_points() -> int:
+    return parse_non_negative_int(get_setting("watchtime_points", "10"), 10)
+
+
+def award_watch_points(users: set[str] | list[str], amount: int, *, skip: set[str] | None = None) -> int:
+    if amount <= 0:
+        return 0
+    blocked = {normalize_user(name) for name in (skip or set()) | WATCH_POINT_BOTS}
+    blocked.discard("")
+    starting_points = parse_non_negative_int(get_setting("starting_points", "100"), 100)
+    now = utc_now()
+    awarded = 0
+    with db_session() as conn:
+        for raw in users:
+            user = normalize_user(raw)
+            if not user or user == "unknown" or user in blocked:
+                continue
+            ensure_user_row(conn, user, starting_points)
+            row = conn.execute(
+                "SELECT last_watch_reward FROM points WHERE user = ?",
+                (user,),
+            ).fetchone()
+            if row and row["last_watch_reward"]:
+                last = parse_iso(row["last_watch_reward"])
+                if now - last < WATCH_POINTS_COOLDOWN:
+                    continue
+            conn.execute(
+                "UPDATE points SET points = points + ?, last_watch_reward = ? WHERE user = ?",
+                (amount, now.isoformat(), user),
+            )
+            awarded += 1
+    return awarded
+
+
 def get_dashboard_settings() -> dict:
     daily_min = parse_non_negative_int(get_setting("daily_min", "25"), 25)
     daily_max = parse_non_negative_int(get_setting("daily_max", "100"), 100)
@@ -1487,6 +1558,7 @@ def get_dashboard_settings() -> dict:
         "daily_max": daily_max,
         "starting_points": parse_non_negative_int(get_setting("starting_points", "100"), 100),
         "default_raffle_cost": max(parse_non_negative_int(get_setting("default_raffle_cost", "50"), 50), 1),
+        "watchtime_points": get_watchtime_points(),
         "prefixes": ", ".join(prefixes),
         "primary_prefix": prefixes[0],
         "lurk_message": get_lurk_message(),

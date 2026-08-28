@@ -641,6 +641,7 @@ class CowBot(commands.Bot):
                 user_read_chat=True,
                 user_write_chat=True,
                 user_bot=True,
+                moderator_read_chatters=True,
             ),
         )
         self.start_time = store.utc_now()
@@ -649,26 +650,37 @@ class CowBot(commands.Bot):
         self._stream_live = False
         self._live_checked_at = 0.0
         self._live_status_logged = False
+        self._watch_chat_seen: dict[str, float] = {}
+        self._watch_scope_warned = False
 
     async def setup_hook(self) -> None:
         store.init_db()
-        api_app = create_api_app(get_status=self.api_status, announce=self.send_channel_message)
+
+        async def apply_tokens(access: str, refresh: str) -> None:
+            persist_twitch_tokens(access, refresh)
+            self._watch_scope_warned = False
+            await self.add_token(access, refresh)
+            await self._subscribe_to_chat()
+            print("SimpleCowBot token updated. Watch points can now read chatters if the new scopes were granted.")
+
+        api_app = create_api_app(
+            get_status=self.api_status,
+            announce=self.send_channel_message,
+            apply_tokens=apply_tokens,
+        )
         await start_api_server(api_app)
 
-        if BOT_TOKEN:
+        stored_access, stored_refresh = store.get_twitch_tokens()
+        token = stored_access or BOT_TOKEN
+        refresh = stored_refresh or BOT_REFRESH_TOKEN
+        if token:
             try:
-                await self.add_token(BOT_TOKEN, BOT_REFRESH_TOKEN)
+                await self.add_token(token, refresh)
             except Exception as exc:
                 print(f"Saved Twitch token is invalid: {exc}")
-                print(
-                    "Open http://localhost:4343/oauth while logged into SimpleCowBot to authorize again. "
-                    "The Twitch app redirect URL must be http://localhost:4343/oauth/callback"
-                )
+                print("Open the dashboard Settings tab and click Authorize SimpleCowBot.")
         else:
-            print(
-                "TWITCH_TOKEN is missing. Open http://localhost:4343/oauth while logged into SimpleCowBot. "
-                "The Twitch app redirect URL must be http://localhost:4343/oauth/callback"
-            )
+            print("TWITCH_TOKEN is missing. Open the dashboard Settings tab and click Authorize SimpleCowBot.")
 
         users = await self.fetch_users(logins=[CHANNEL.lower()])
         if not users:
@@ -679,6 +691,7 @@ class CowBot(commands.Bot):
         names = ", ".join(sorted({cmd.name for cmd in self.unique_commands}))
         print(f"Loaded commands | {names}")
         self._scheduler_task = asyncio.create_task(self._run_scheduled_messages())
+        self._watch_points_task = asyncio.create_task(self._run_watch_points())
         self._subscribe_task = asyncio.create_task(self._keep_chat_subscribed())
 
     def get_context(self, payload, *, cls=None):
@@ -734,8 +747,8 @@ class CowBot(commands.Bot):
         except Exception as exc:
             print(f"Chat subscription failed: {exc}")
             print(
-                "Chat needs TWITCH_TOKEN for SimpleCowBot with scopes user:read:chat, user:write:chat, user:bot. "
-                "Copy TWITCH_TOKEN and TWITCH_REFRESH_TOKEN onto this Railway service. "
+                "Chat needs a SimpleCowBot token with scopes user:read:chat, user:write:chat, user:bot, moderator:read:chatters. "
+                "Open the dashboard Settings tab and click Authorize SimpleCowBot. "
                 "In Cows_Are_Every_Where chat, /mod SimpleCowBot."
             )
 
@@ -792,6 +805,94 @@ class CowBot(commands.Bot):
                 print(f"Scheduled message error: {exc}")
             await asyncio.sleep(15)
 
+    def _note_watcher(self, user_name: str | None) -> None:
+        name = store.normalize_user(user_name)
+        if not name or name == "unknown":
+            return
+        now = time.monotonic()
+        self._watch_chat_seen[name] = now
+        stale = now - (store.WATCH_POINTS_SECONDS * 3)
+        if len(self._watch_chat_seen) > 4000:
+            self._watch_chat_seen = {
+                user: seen for user, seen in self._watch_chat_seen.items() if seen >= stale
+            }
+
+    def _watch_skip_names(self) -> set[str]:
+        names = {store.normalize_user(BOT_NICK)}
+        bot_user = getattr(self.user, "name", None) if self.user else None
+        if bot_user:
+            names.add(store.normalize_user(bot_user))
+        names.discard("")
+        names.discard("unknown")
+        return names
+
+    async def _current_watchers(self) -> set[str] | None:
+        if self.channel_user is None:
+            return None
+        try:
+            chatters = await self.channel_user.fetch_chatters(
+                moderator=self.bot_id,
+                first=1000,
+                max_results=5000,
+            )
+            names: set[str] = set()
+            async for user in chatters.users:
+                login = store.normalize_user(getattr(user, "name", None))
+                if login and login != "unknown":
+                    names.add(login)
+            self._watch_scope_warned = False
+            return names
+        except Exception as exc:
+            if not self._watch_scope_warned:
+                print(f"Watch points chatters lookup failed: {exc}")
+                print(
+                    "Open the dashboard Settings tab and click Authorize SimpleCowBot "
+                    "while logged into SimpleCowBot. Keep SimpleCowBot modded in the channel."
+                )
+                self._watch_scope_warned = True
+            cutoff = time.monotonic() - store.WATCH_POINTS_SECONDS
+            fallback = {user for user, seen in self._watch_chat_seen.items() if seen >= cutoff}
+            return fallback or None
+
+    async def _run_watch_points(self) -> None:
+        present: set[str] = set()
+        last_tick = 0.0
+        while True:
+            try:
+                live = await self.refresh_stream_live()
+                amount = store.get_watchtime_points()
+                if (
+                    not live
+                    or amount <= 0
+                    or self.channel_user is None
+                    or not store.is_feature_enabled("economy")
+                ):
+                    present = set()
+                    last_tick = 0.0
+                    await asyncio.sleep(15)
+                    continue
+                now = time.monotonic()
+                if last_tick and now - last_tick < store.WATCH_POINTS_SECONDS:
+                    await asyncio.sleep(15)
+                    continue
+                watchers = await self._current_watchers()
+                if watchers is None:
+                    await asyncio.sleep(15)
+                    continue
+                if last_tick and present:
+                    awarded = store.award_watch_points(
+                        watchers & present,
+                        amount,
+                        skip=self._watch_skip_names(),
+                    )
+                    if awarded:
+                        print(f"Watch points | {awarded} viewers +{amount}")
+                present = watchers
+                last_tick = now
+            except Exception as exc:
+                print(f"Watch points error: {exc}")
+            await asyncio.sleep(15)
+
     async def event_ready(self):
         bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
         prefixes = " ".join(store.get_command_prefixes())
@@ -810,6 +911,7 @@ class CowBot(commands.Bot):
         chatter_id = str(getattr(payload.chatter, "id", "") or "")
         if chatter_id and chatter_id == str(self.bot_id):
             return
+        self._note_watcher(chatter)
         await self.process_commands(payload)
 
     async def event_command_error(self, payload: commands.CommandErrorPayload) -> None:

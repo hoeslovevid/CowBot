@@ -382,7 +382,7 @@ function setupForms() {
           resetCommandForm();
         } else if (submitter?.value === "create" || submitter?.classList.contains("primary")) {
           form.querySelectorAll("input:not([type='hidden']):not([type='number']), textarea").forEach((field) => {
-            if (!field.readOnly && field.name !== "lurk_message" && !["daily_min", "daily_max", "starting_points", "default_raffle_cost", "prefixes", "interval_minutes"].includes(field.name)) {
+            if (!field.readOnly && field.name !== "lurk_message" && !["daily_min", "daily_max", "starting_points", "default_raffle_cost", "watchtime_points", "prefixes", "interval_minutes"].includes(field.name)) {
               field.value = "";
             }
           });
@@ -643,22 +643,42 @@ function setupGiveawayWheel() {
   });
 }
 
-function setupOverlayCopy() {
-  const input = document.getElementById("overlay-url");
-  const button = document.getElementById("copy-overlay-url");
-  if (!input || !button) return;
-  button.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(input.value);
-      button.textContent = "Copied";
-      setTimeout(() => {
-        button.textContent = "Copy OBS URL";
-      }, 1600);
-    } catch (_error) {
-      input.select();
-      document.execCommand("copy");
-    }
+function setupCopyButtons() {
+  document.querySelectorAll("[data-copy-target]").forEach((button) => {
+    const input = document.getElementById(button.dataset.copyTarget);
+    if (!input) return;
+    const original = button.textContent;
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(input.value);
+        button.textContent = "Copied";
+        setTimeout(() => {
+          button.textContent = original;
+        }, 1600);
+      } catch (_error) {
+        input.select();
+        document.execCommand("copy");
+      }
+    });
   });
+}
+
+function showOAuthResult() {
+  const result = new URLSearchParams(window.location.search).get("oauth");
+  const messages = {
+    ok: ["SimpleCowBot is connected. Watch points can see chatters now.", "success"],
+    config: ["TWITCH_CLIENT_ID is missing on the dashboard service.", "error"],
+    denied: ["Twitch login was cancelled.", "error"],
+    bad: ["Twitch login failed. Try Authorize SimpleCowBot again.", "error"],
+    redirect: ["Add the redirect URL to your Twitch app, then try again.", "error"],
+    bot: ["The bot was offline, so the new login could not be saved. Start the bot and authorize again.", "error"],
+  };
+  const message = messages[result];
+  if (!message) return;
+  showToast(message[0], message[1]);
+  const url = new URL(window.location.href);
+  url.searchParams.delete("oauth");
+  window.history.replaceState({}, "", url.pathname + url.search + url.hash);
 }
 
 setupTabs();
@@ -668,6 +688,7 @@ setupInstantToggles();
 setupCommandEditor();
 setupItemActions();
 setupGiveawayWheel();
-setupOverlayCopy();
+setupCopyButtons();
+showOAuthResult();
 refreshStatus();
 setInterval(refreshStatus, 8000);

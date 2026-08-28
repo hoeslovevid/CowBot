@@ -7,6 +7,7 @@ import store
 
 AnnounceFn = Callable[[str], Awaitable[None]]
 StatusFn = Callable[[], dict]
+ApplyTokensFn = Callable[[str, str], Awaitable[None]]
 
 
 def _authorized(request: web.Request) -> bool:
@@ -16,7 +17,12 @@ def _authorized(request: web.Request) -> bool:
     return request.headers.get("X-API-Secret", "") == expected
 
 
-def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Application:
+def create_api_app(
+    *,
+    get_status: StatusFn,
+    announce: AnnounceFn,
+    apply_tokens: ApplyTokensFn | None = None,
+) -> web.Application:
     app = web.Application()
 
     async def health(_request: web.Request) -> web.Response:
@@ -47,6 +53,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
             daily_min, daily_max = daily_max, daily_min
         starting_points = store.parse_non_negative_int(str(payload.get("starting_points", "")), 100)
         default_raffle_cost = max(store.parse_non_negative_int(str(payload.get("default_raffle_cost", "")), 50), 1)
+        watchtime_points = store.parse_non_negative_int(str(payload.get("watchtime_points", "")), 10)
         if "prefixes" in payload:
             success, error = store.set_command_prefixes(str(payload.get("prefixes") or ""))
             if not success:
@@ -55,6 +62,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
         store.set_setting("daily_max", str(daily_max))
         store.set_setting("starting_points", str(starting_points))
         store.set_setting("default_raffle_cost", str(default_raffle_cost))
+        store.set_setting("watchtime_points", str(watchtime_points))
         return web.json_response({"ok": True, "settings": store.get_dashboard_settings()})
 
     async def update_features(request: web.Request) -> web.Response:
@@ -64,6 +72,19 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
         flags = payload.get("features") if isinstance(payload.get("features"), dict) else payload
         store.set_feature_flags(flags if isinstance(flags, dict) else {})
         return web.json_response({"ok": True, "features": store.get_feature_flags()})
+
+    async def apply_oauth(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        payload = await request.json()
+        access = str(payload.get("access_token") or "").strip()
+        refresh = str(payload.get("refresh_token") or "").strip()
+        if not access:
+            return web.json_response({"ok": False, "error": "Missing access token."}, status=400)
+        store.set_twitch_tokens(access, refresh)
+        if apply_tokens:
+            await apply_tokens(access, refresh)
+        return web.json_response({"ok": True})
 
     async def update_builtin_commands(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
@@ -323,6 +344,7 @@ def create_api_app(*, get_status: StatusFn, announce: AnnounceFn) -> web.Applica
     app.router.add_get("/api/status", status)
     app.router.add_post("/api/settings", update_settings)
     app.router.add_post("/api/features", update_features)
+    app.router.add_post("/api/oauth", apply_oauth)
     app.router.add_post("/api/builtin-commands", update_builtin_commands)
     app.router.add_post("/api/poll", manage_poll)
     app.router.add_post("/api/raffle", manage_raffle)

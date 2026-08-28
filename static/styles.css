@@ -544,6 +544,16 @@ button {
   color: var(--ink);
 }
 
+a.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  border-radius: 12px;
+  padding: 13px 16px;
+  font-weight: 700;
+}
+
 .primary:hover { filter: brightness(0.94); }
 
 .ghost {
@@ -647,7 +657,7 @@ code {
 }
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.actions button { width: auto; }
+.actions button, .actions a { width: auto; }
 
 .schedule-list {
   display: grid;

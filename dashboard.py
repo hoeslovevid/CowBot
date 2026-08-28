@@ -1,9 +1,11 @@
 import logging
 import os
+import secrets
+from urllib.parse import urlencode
 
 import requests
 from dotenv import find_dotenv, load_dotenv
-from flask import Flask, flash, jsonify, make_response, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, make_response, redirect, render_template, request, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import store
@@ -50,6 +52,7 @@ EMPTY_STATUS = {
         "daily_max": 100,
         "starting_points": 100,
         "default_raffle_cost": 50,
+        "watchtime_points": 10,
         "prefixes": "?,!",
         "primary_prefix": "?",
         "lurk_message": store.DEFAULT_LURK_MESSAGE,
@@ -79,6 +82,10 @@ def public_origin() -> str:
 
 def overlay_page_url() -> str:
     return f"{public_origin()}{url_for('giveaway_overlay')}"
+
+
+def oauth_callback_url() -> str:
+    return f"{public_origin()}{url_for('twitch_oauth_callback')}"
 
 
 def bot_headers() -> dict[str, str]:
@@ -191,7 +198,74 @@ def proxy_status():
 
 @app.route("/")
 def dashboard():
-    return render_template("dashboard.html", status=fetch_status(), overlay_url=overlay_page_url())
+    return render_template(
+        "dashboard.html",
+        status=fetch_status(),
+        overlay_url=overlay_page_url(),
+        oauth_redirect_url=oauth_callback_url(),
+    )
+
+
+@app.route("/oauth")
+def twitch_oauth_start():
+    client_id = (os.getenv("TWITCH_CLIENT_ID") or "").strip()
+    if not client_id or client_id.lower().startswith("your_"):
+        return redirect(url_for("dashboard", oauth="config"))
+    state = secrets.token_urlsafe(24)
+    redirect_uri = oauth_callback_url()
+    session["oauth_state"] = state
+    session["oauth_redirect"] = redirect_uri
+    params = urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": " ".join(store.BOT_OAUTH_SCOPES),
+        "force_verify": "true",
+        "state": state,
+    })
+    return redirect(f"https://id.twitch.tv/oauth2/authorize?{params}")
+
+
+@app.route("/oauth/callback")
+def twitch_oauth_callback():
+    if request.args.get("state") != session.get("oauth_state"):
+        return redirect(url_for("dashboard", oauth="bad"))
+    if request.args.get("error"):
+        return redirect(url_for("dashboard", oauth="denied"))
+    code = (request.args.get("code") or "").strip()
+    redirect_uri = session.get("oauth_redirect") or oauth_callback_url()
+    client_id = (os.getenv("TWITCH_CLIENT_ID") or "").strip()
+    client_secret = (os.getenv("TWITCH_CLIENT_SECRET") or "").strip()
+    if not code or not client_id or not client_secret:
+        return redirect(url_for("dashboard", oauth="bad"))
+    try:
+        token_response = requests.post(
+            "https://id.twitch.tv/oauth2/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": redirect_uri,
+            },
+            timeout=12,
+        )
+        payload = token_response.json() if token_response.content else {}
+    except (requests.RequestException, ValueError):
+        return redirect(url_for("dashboard", oauth="bad"))
+    access = str(payload.get("access_token") or "").strip()
+    refresh = str(payload.get("refresh_token") or "").strip()
+    if not token_response.ok or not access:
+        return redirect(url_for("dashboard", oauth="redirect"))
+    success, error = post_bot("/api/oauth", {
+        "access_token": access,
+        "refresh_token": refresh,
+    })
+    session.pop("oauth_state", None)
+    session.pop("oauth_redirect", None)
+    if not success:
+        return redirect(url_for("dashboard", oauth="bot"))
+    return redirect(url_for("dashboard", oauth="ok"))
 
 
 @app.route("/update-settings", methods=["POST"])
@@ -202,6 +276,7 @@ def update_settings():
         "daily_max": data.get("daily_max"),
         "starting_points": data.get("starting_points"),
         "default_raffle_cost": data.get("default_raffle_cost"),
+        "watchtime_points": data.get("watchtime_points"),
         "prefixes": data.get("prefixes"),
     })
     return finish(success, "Economy settings saved.", error)

@@ -5,6 +5,14 @@ import sys
 import threading
 import time
 
+from dotenv import find_dotenv, load_dotenv
+
+
+def load_environment() -> None:
+    env_path = find_dotenv()
+    if env_path:
+        load_dotenv(env_path, override=True)
+
 
 def resolve_role() -> tuple[str, str]:
     role = (os.getenv("APP_ROLE") or "all").strip().lower()
@@ -50,10 +58,10 @@ def supervise_bot(bot_env: dict[str, str]) -> None:
     missing = missing_bot_vars(bot_env)
     if missing:
         print(
-            "Bot is not starting. Add these Railway Variables on this service: "
+            "Bot is not starting. Missing: "
             + ", ".join(missing)
         )
-        print("Copy the values from your local .env. Do not leave placeholders like your_twitch_client_id.")
+        print("Put those values in your local .env, or on Railway under this service's Variables.")
         return
 
     while True:
@@ -74,7 +82,7 @@ def run_combined() -> None:
 
     os.environ["BOT_API_URL"] = f"http://127.0.0.1:{bot_port}"
 
-    print(f"Starting CowBot combined: dashboard on PORT={os.getenv('PORT')}, bot API on 127.0.0.1:{bot_port}")
+    print(f"Starting CowBot combined: dashboard on PORT={os.getenv('PORT') or '5000'}, bot API on 127.0.0.1:{bot_port}")
     threading.Thread(target=supervise_bot, args=(bot_env,), daemon=True).start()
     run_script("dashboard.py")
 
@@ -91,4 +99,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    load_environment()
     main()
