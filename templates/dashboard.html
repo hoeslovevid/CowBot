@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=10">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=12">
 </head>
 <body data-prefix="{{ status.settings.primary_prefix }}">
   <div class="spots" aria-hidden="true"></div>
@@ -344,7 +344,7 @@
             <div class="actions">
               <button type="button" class="ghost" data-copy-target="overlay-url">Copy OBS URL</button>
             </div>
-            <p class="muted">Browser Source, 1080×1080, check <strong>Transparent</strong>, and uncheck <strong>Shutdown source when not visible</strong>. Leave it in the scene you stream. The wheel stays hidden until you pick a winner on Live.</p>
+            <p class="muted">Browser Source, 1080×1080, check <strong>Transparent</strong>, and uncheck <strong>Shutdown source when not visible</strong>. Leave it in the scene you stream. After an overlay update, right-click the source and choose <strong>Refresh</strong> so OBS loads the new wheel. The wheel stays hidden until you pick winners on Live.</p>
           </div>
         </section>
       </div>
@@ -370,7 +370,7 @@
       </div>
     </div>
   </div>
-  <script src="{{ url_for('static', filename='wheel.js') }}?v=10"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=10"></script>
+  <script src="{{ url_for('static', filename='wheel.js') }}?v=12"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=12"></script>
 </body>
 </html>

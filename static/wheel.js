@@ -75,20 +75,33 @@ function currentRotation(element) {
 
 function spinTo(element, degrees, duration) {
   const from = currentRotation(element);
+  const delta = degrees - from;
   return new Promise((resolve) => {
     const start = performance.now();
-    const delta = degrees - from;
-    function frame(now) {
-      const progress = Math.min((now - start) / duration, 1);
-      const angle = from + delta * easeOutQuart(progress);
-      element.style.transform = `rotate(${angle}deg)`;
-      if (progress < 1) {
-        requestAnimationFrame(frame);
-      } else {
-        resolve();
-      }
+    let done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      element.style.transform = `rotate(${degrees}deg)`;
+      resolve();
     }
-    requestAnimationFrame(frame);
+    function paint(now) {
+      if (done) return;
+      const progress = Math.min((now - start) / duration, 1);
+      element.style.transform = `rotate(${from + delta * easeOutQuart(progress)}deg)`;
+      if (progress >= 1) {
+        finish();
+        return;
+      }
+      requestAnimationFrame(paint);
+    }
+    requestAnimationFrame(paint);
+    // OBS browser sources can stall requestAnimationFrame after the first spin.
+    const timer = setInterval(() => {
+      paint(performance.now());
+      if (done) clearInterval(timer);
+    }, 16);
+    setTimeout(finish, duration + 400);
   });
 }
 

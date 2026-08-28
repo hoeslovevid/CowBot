@@ -2,10 +2,28 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function winnerList(payload) {
+  if (Array.isArray(payload.winners) && payload.winners.length) {
+    return payload.winners.map((name) => String(name)).filter(Boolean);
+  }
+  if (typeof payload.winners === "string" && payload.winners.trim()) {
+    return payload.winners.split(/[,·]/).map((name) => name.trim()).filter(Boolean);
+  }
+  return payload.winner ? [String(payload.winner)] : [];
+}
+
 function isFreshSpin(spin) {
   const created = Date.parse(spin && spin.created_at);
   if (Number.isNaN(created)) return Boolean(spin && spin.id);
-  return Date.now() - created < 30000;
+  const count = Math.max(1, winnerList(spin).length);
+  return Date.now() - created < Math.max(180000, count * 25000);
+}
+
+function resetDisc(disc) {
+  disc.style.transform = "none";
+  void disc.offsetWidth;
+  disc.style.transform = "rotate(0deg)";
+  void disc.offsetWidth;
 }
 
 function setupOverlayWheel() {
@@ -20,9 +38,11 @@ function setupOverlayWheel() {
   let seenId = null;
   let spinning = false;
   let primed = false;
+  const queue = [];
 
   async function playSpin(payload) {
-    const winners = (payload.winners && payload.winners.length) ? payload.winners : [payload.winner];
+    const winners = winnerList(payload);
+    if (!winners.length) return;
     const reroll = Boolean(payload.reroll);
     stage.hidden = false;
     stage.classList.remove("revealed", "leaving");
@@ -31,7 +51,7 @@ function setupOverlayWheel() {
     for (let index = 0; index < winners.length; index += 1) {
       const winner = winners[index];
       const { slices, target } = buildSlices(payload.entries || [], winner);
-      disc.style.transform = "rotate(0deg)";
+      resetDisc(disc);
       drawWheel(canvas, slices);
       kicker.textContent = reroll
         ? (payload.replaced ? `${payload.replaced} is out` : "Reroll")
@@ -64,8 +84,26 @@ function setupOverlayWheel() {
     stage.classList.remove("revealed", "leaving");
   }
 
-  async function poll() {
+  async function drain() {
     if (spinning) return;
+    spinning = true;
+    try {
+      while (queue.length) {
+        const next = queue.shift();
+        seenId = next.id;
+        try {
+          await playSpin(next);
+        } catch (_error) {
+          // Keep draining later spins if one overlay frame errors.
+        }
+      }
+    } finally {
+      spinning = false;
+      if (queue.length) drain();
+    }
+  }
+
+  async function poll() {
     try {
       const response = await fetch("/overlay/giveaway/state", {
         cache: "no-store",
@@ -77,24 +115,18 @@ function setupOverlayWheel() {
       const spinId = spin && spin.id;
       if (!primed) {
         primed = true;
-        if (spinId && isFreshSpin(spin)) {
-          spinning = true;
-          await playSpin(spin);
-          seenId = spinId;
-          spinning = false;
-        } else {
+        if (!(spinId && isFreshSpin(spin))) {
           seenId = spinId || null;
+          return;
         }
-        return;
       }
       if (!spinId || spinId === seenId) return;
-      spinning = true;
-      await playSpin(spin);
-      seenId = spinId;
+      if (queue.some((item) => item.id === spinId)) return;
+      queue.push(spin);
+      drain();
     } catch (_error) {
       // Keep the overlay idle if the dashboard or bot is briefly unreachable.
     }
-    spinning = false;
   }
 
   poll();

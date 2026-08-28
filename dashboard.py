@@ -81,7 +81,7 @@ def public_origin() -> str:
 
 
 def overlay_page_url() -> str:
-    return f"{public_origin()}{url_for('giveaway_overlay')}"
+    return f"{public_origin()}{url_for('giveaway_overlay')}?v=12"
 
 
 def oauth_callback_url() -> str:
@@ -180,7 +180,11 @@ def finish(success: bool, ok_message: str, error: str | None = None):
 @app.after_request
 def cache_static(response):
     if request.path.startswith("/static/"):
-        response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+        name = request.path.rsplit("/", 1)[-1]
+        if name in {"overlay.js", "wheel.js", "styles.css"}:
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=604800, immutable"
     return response
 
 
