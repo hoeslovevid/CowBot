@@ -50,7 +50,8 @@ function setupOverlayWheel() {
 
     for (let index = 0; index < winners.length; index += 1) {
       const winner = winners[index];
-      const { slices, target } = buildSlices(payload.entries || [], winner);
+      const exclude = [...(payload.excluded || []), payload.replaced, ...winners.slice(0, index)].filter(Boolean);
+      const { slices, target } = buildSlices(payload.entries || [], winner, exclude);
       resetDisc(disc);
       drawWheel(canvas, slices);
       kicker.textContent = reroll

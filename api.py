@@ -54,6 +54,7 @@ def create_api_app(
         starting_points = store.parse_non_negative_int(str(payload.get("starting_points", "")), 100)
         default_raffle_cost = max(store.parse_non_negative_int(str(payload.get("default_raffle_cost", "")), 50), 1)
         watchtime_points = store.parse_non_negative_int(str(payload.get("watchtime_points", "")), 10)
+        watchtime_minutes = store.parse_watchtime_minutes(payload.get("watchtime_minutes"))
         if "prefixes" in payload:
             success, error = store.set_command_prefixes(str(payload.get("prefixes") or ""))
             if not success:
@@ -63,6 +64,7 @@ def create_api_app(
         store.set_setting("starting_points", str(starting_points))
         store.set_setting("default_raffle_cost", str(default_raffle_cost))
         store.set_setting("watchtime_points", str(watchtime_points))
+        store.set_setting("watchtime_minutes", str(watchtime_minutes))
         return web.json_response({"ok": True, "settings": store.get_dashboard_settings()})
 
     async def update_features(request: web.Request) -> web.Response:
@@ -222,6 +224,7 @@ def create_api_app(
         if action == "reroll":
             winners, giveaway_name, entries, replaced = store.reroll_giveaway(payload.get("replace"))
             if winners and giveaway_name:
+                spin = store.get_overlay_spin() or {}
                 return web.json_response({
                     "ok": True,
                     "winner": winners[0],
@@ -230,6 +233,7 @@ def create_api_app(
                     "entries": entries,
                     "reroll": True,
                     "replaced": replaced or "",
+                    "excluded": spin.get("excluded") or ([replaced] if replaced else []),
                 })
             return web.json_response({"ok": False, "error": giveaway_name or "There is no giveaway to reroll."}, status=400)
         if action == "end":

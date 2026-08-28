@@ -658,6 +658,7 @@ class CowBot(commands.Bot):
         self._live_checked_at = 0.0
         self._live_status_logged = False
         self._watch_chat_seen: dict[str, float] = {}
+        self._watch_interval_seconds = store.DEFAULT_WATCHTIME_MINUTES * 60
         self._watch_scope_warned = False
         self._pin_scope_warned = False
 
@@ -887,7 +888,7 @@ class CowBot(commands.Bot):
             return
         now = time.monotonic()
         self._watch_chat_seen[name] = now
-        stale = now - (store.WATCH_POINTS_SECONDS * 3)
+        stale = now - (self._watch_interval_seconds * 3)
         if len(self._watch_chat_seen) > 4000:
             self._watch_chat_seen = {
                 user: seen for user, seen in self._watch_chat_seen.items() if seen >= stale
@@ -926,7 +927,7 @@ class CowBot(commands.Bot):
                     "while logged into SimpleCowBot. Keep SimpleCowBot modded in the channel."
                 )
                 self._watch_scope_warned = True
-            cutoff = time.monotonic() - store.WATCH_POINTS_SECONDS
+            cutoff = time.monotonic() - self._watch_interval_seconds
             fallback = {user for user, seen in self._watch_chat_seen.items() if seen >= cutoff}
             return fallback or None
 
@@ -937,6 +938,8 @@ class CowBot(commands.Bot):
             try:
                 live = await self.refresh_stream_live()
                 amount = store.get_watchtime_points()
+                interval = store.get_watch_points_seconds()
+                self._watch_interval_seconds = interval
                 if (
                     not live
                     or amount <= 0
@@ -948,7 +951,7 @@ class CowBot(commands.Bot):
                     await asyncio.sleep(15)
                     continue
                 now = time.monotonic()
-                if last_tick and now - last_tick < store.WATCH_POINTS_SECONDS:
+                if last_tick and now - last_tick < interval:
                     await asyncio.sleep(15)
                     continue
                 watchers = await self._current_watchers()

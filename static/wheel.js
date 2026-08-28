@@ -8,15 +8,62 @@ function easeOutQuart(value) {
   return 1 - Math.pow(1 - value, 4);
 }
 
-function buildSlices(entries, winner) {
-  const source = (entries && entries.length ? entries : [winner]).map((name) => String(name));
+function secureRandom() {
+  if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === "function") {
+    const buffer = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(buffer);
+    return buffer[0] / 4294967296;
+  }
+  return Math.random();
+}
+
+function normalizeName(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function uniqueNames(entries) {
+  const seen = new Set();
+  const names = [];
+  for (const entry of entries || []) {
+    const label = String(entry || "").trim();
+    const key = normalizeName(label);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    names.push(label);
+  }
+  return names;
+}
+
+function shuffleNames(entries) {
+  const names = [...entries];
+  for (let index = names.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(secureRandom() * (index + 1));
+    [names[index], names[swap]] = [names[swap], names[index]];
+  }
+  return names;
+}
+
+function wheelEntries(entries, winner, exclude) {
+  const blocked = new Set((exclude || []).map(normalizeName).filter(Boolean));
+  const winnerKey = normalizeName(winner);
+  blocked.delete(winnerKey);
+  const source = uniqueNames(entries).filter((name) => !blocked.has(normalizeName(name)));
+  if (winner && !source.some((name) => normalizeName(name) === winnerKey)) {
+    source.push(String(winner));
+  }
+  return shuffleNames(source.length ? source : (winner ? [String(winner)] : []));
+}
+
+function buildSlices(entries, winner, exclude) {
+  const source = wheelEntries(entries, winner, exclude);
   let slices = [...source];
-  while (slices.length < 8) slices = slices.concat(source);
-  const winnerKey = String(winner).toLowerCase();
+  while (slices.length && slices.length < 8) slices = slices.concat(source);
+  const winnerKey = normalizeName(winner);
   const matches = slices
-    .map((name, index) => (name.toLowerCase() === winnerKey ? index : -1))
+    .map((name, index) => (normalizeName(name) === winnerKey ? index : -1))
     .filter((index) => index >= 0);
-  return { slices, target: matches[Math.floor(matches.length / 2)] ?? 0 };
+  const target = matches.length ? matches[Math.floor(secureRandom() * matches.length)] : 0;
+  return { slices, target };
 }
 
 function contrastColor(hex) {
@@ -107,7 +154,7 @@ function spinTo(element, degrees, duration) {
 
 function destinationAngle(disc, slices, target) {
   const arc = 360 / slices.length;
-  const jitter = (Math.random() - 0.5) * arc * 0.55;
+  const jitter = (secureRandom() - 0.5) * arc * 0.55;
   let desired = -((target + 0.5) * arc) + jitter;
   desired = ((desired % 360) + 360) % 360;
   const current = currentRotation(disc);

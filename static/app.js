@@ -382,7 +382,7 @@ function setupForms() {
           resetCommandForm();
         } else if (submitter?.value === "create" || submitter?.classList.contains("primary")) {
           form.querySelectorAll("input:not([type='hidden']):not([type='number']), textarea").forEach((field) => {
-            if (!field.readOnly && field.name !== "lurk_message" && !["daily_min", "daily_max", "starting_points", "default_raffle_cost", "watchtime_points", "prefixes", "interval_minutes"].includes(field.name)) {
+            if (!field.readOnly && field.name !== "lurk_message" && !["daily_min", "daily_max", "starting_points", "default_raffle_cost", "watchtime_points", "watchtime_minutes", "prefixes", "interval_minutes"].includes(field.name)) {
               field.value = "";
             }
           });
@@ -533,9 +533,10 @@ function setupGiveawayWheel() {
     return payload.winner ? [payload.winner] : [];
   }
 
-  async function playSpin(payload, { reroll = false, index = 0, total = 1 } = {}) {
+  async function playSpin(payload, { reroll = false, index = 0, total = 1, previous = [] } = {}) {
     const winner = payload.winner;
-    const { slices, target } = buildSlices(payload.entries || [], winner);
+    const exclude = [...(payload.excluded || []), payload.replaced, ...previous].filter(Boolean);
+    const { slices, target } = buildSlices(payload.entries || [], winner, exclude);
     drawWheel(canvas, slices);
     modal.hidden = false;
     modal.classList.remove("revealed");
@@ -563,12 +564,14 @@ function setupGiveawayWheel() {
   async function playSpins(payload, { reroll = false } = {}) {
     const winners = winnerNames(payload);
     if (!reroll) multiWinner = winners.length > 1;
+    const previous = [];
     for (let index = 0; index < winners.length; index += 1) {
       disc.style.transform = "rotate(0deg)";
       await playSpin(
         { ...payload, winner: winners[index] },
-        { reroll, index, total: winners.length },
+        { reroll, index, total: winners.length, previous: [...previous] },
       );
+      previous.push(winners[index]);
       if (index < winners.length - 1) {
         await new Promise((resolve) => setTimeout(resolve, prefersReducedMotion() ? 250 : 900));
       }

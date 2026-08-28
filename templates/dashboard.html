@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=12">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=14">
 </head>
 <body data-prefix="{{ status.settings.primary_prefix }}">
   <div class="spots" aria-hidden="true"></div>
@@ -273,9 +273,13 @@
             <label>Default raffle cost
               <input name="default_raffle_cost" type="number" min="1" value="{{ status.settings.default_raffle_cost }}">
             </label>
-            <label>Watch reward (every 5 min)
+            <label>Watch points
               <input name="watchtime_points" type="number" min="0" value="{{ status.settings.watchtime_points }}">
-              <span class="field-hint">Points while the stream is live. 0 turns this off.</span>
+              <span class="field-hint">Granted while the stream is live. 0 turns this off.</span>
+            </label>
+            <label>Every (minutes)
+              <input name="watchtime_minutes" type="number" min="1" max="60" value="{{ status.settings.watchtime_minutes }}">
+              <span class="field-hint">How often those points are granted.</span>
             </label>
             <label class="span-2">Command prefixes
               <input name="prefixes" value="{{ status.settings.prefixes }}" placeholder="?, !">
@@ -370,7 +374,7 @@
       </div>
     </div>
   </div>
-  <script src="{{ url_for('static', filename='wheel.js') }}?v=12"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=12"></script>
+  <script src="{{ url_for('static', filename='wheel.js') }}?v=14"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=14"></script>
 </body>
 </html>

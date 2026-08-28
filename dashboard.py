@@ -53,6 +53,7 @@ EMPTY_STATUS = {
         "starting_points": 100,
         "default_raffle_cost": 50,
         "watchtime_points": 10,
+        "watchtime_minutes": 5,
         "prefixes": "?,!",
         "primary_prefix": "?",
         "lurk_message": store.DEFAULT_LURK_MESSAGE,
@@ -81,7 +82,7 @@ def public_origin() -> str:
 
 
 def overlay_page_url() -> str:
-    return f"{public_origin()}{url_for('giveaway_overlay')}?v=12"
+    return f"{public_origin()}{url_for('giveaway_overlay')}?v=13"
 
 
 def oauth_callback_url() -> str:
@@ -281,6 +282,7 @@ def update_settings():
         "starting_points": data.get("starting_points"),
         "default_raffle_cost": data.get("default_raffle_cost"),
         "watchtime_points": data.get("watchtime_points"),
+        "watchtime_minutes": data.get("watchtime_minutes"),
         "prefixes": data.get("prefixes"),
     })
     return finish(success, "Economy settings saved.", error)

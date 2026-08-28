@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import secrets
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -26,6 +27,7 @@ def resolve_db_path() -> str:
 DB_PATH = resolve_db_path()
 _db_lock = Lock()
 _db_path_logged = False
+_secure_rng = secrets.SystemRandom()
 
 
 def utc_now() -> datetime:
@@ -471,8 +473,9 @@ def upsert_config(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
-WATCH_POINTS_SECONDS = 300
-WATCH_POINTS_COOLDOWN = timedelta(minutes=4)
+DEFAULT_WATCHTIME_MINUTES = 5
+MIN_WATCHTIME_MINUTES = 1
+MAX_WATCHTIME_MINUTES = 60
 WATCH_POINT_BOTS = {
     "streamelements",
     "streamlabs",
@@ -640,11 +643,31 @@ def _excluded_winners(conn: sqlite3.Connection, extra: str | None = None) -> set
     return names
 
 
+def _add_excluded(conn: sqlite3.Connection, *names: str) -> set[str]:
+    blocked = _excluded_winners(conn)
+    for name in names:
+        user = normalize_user(name)
+        if user and user != "unknown":
+            blocked.add(user)
+    upsert_config(conn, "giveaway_excluded_winners", ",".join(sorted(blocked)))
+    return blocked
+
+
+def _eligible_entries(entries: list[str], blocked: set[str]) -> list[str]:
+    return [user for user in entries if normalize_user(user) not in blocked]
+
+
+def _shuffle_entries(entries: list[str]) -> list[str]:
+    shuffled = list(entries)
+    _secure_rng.shuffle(shuffled)
+    return shuffled
+
+
 def _save_recorded_winners(conn: sqlite3.Connection, name: str, winners: list[str]) -> None:
     upsert_config(conn, "last_giveaway_winners", _dump_winners(winners))
     upsert_config(conn, "last_giveaway_winner", ", ".join(winners))
     upsert_config(conn, "last_giveaway_name", name)
-    upsert_config(conn, "giveaway_excluded_winners", ",".join(sorted({normalize_user(user) for user in winners})))
+    _add_excluded(conn, *winners)
 
 
 def _clear_pending_draw(conn: sqlite3.Connection) -> None:
@@ -693,11 +716,12 @@ def draw_giveaway(count: int | str | None = None) -> tuple[list[str] | None, str
             return None, f"No entries for giveaway '{giveaway_name}'.", []
         if len(entries) < requested:
             return None, f"Need at least {requested} entries to draw {requested} winners.", entries
-        winners = random.sample(entries, requested)
+        winners = _secure_rng.sample(entries, requested)
         upsert_config(conn, "giveaway_winner_count", str(requested))
         _set_pending_draw(conn, giveaway_name, winners)
-    publish_overlay_spin(winners[0], giveaway_name, entries, reroll=False, winners=winners)
-    return winners, giveaway_name, entries
+    wheel = _shuffle_entries(entries)
+    publish_overlay_spin(winners[0], giveaway_name, wheel, reroll=False, winners=winners)
+    return winners, giveaway_name, wheel
 
 
 def reroll_giveaway(replace: str | None = None) -> tuple[list[str] | None, str | None, list[str], str | None]:
@@ -732,11 +756,11 @@ def reroll_giveaway(replace: str | None = None) -> tuple[list[str] | None, str |
             (giveaway_name,),
         ).fetchall()
         entries = [row["user"] for row in rows]
-        blocked = {normalize_user(user) for user in current}
-        remaining = [user for user in entries if normalize_user(user) not in blocked]
+        blocked = _excluded_winners(conn, replace_name) | {normalize_user(user) for user in current}
+        remaining = _eligible_entries(entries, blocked)
         if not remaining:
             return None, "No other entries left to reroll.", entries, None
-        winner = random.choice(remaining)
+        winner = _secure_rng.choice(remaining)
         next_winners = []
         swapped = False
         for user in current:
@@ -747,6 +771,7 @@ def reroll_giveaway(replace: str | None = None) -> tuple[list[str] | None, str |
                 next_winners.append(user)
         if not swapped:
             next_winners = current + [winner]
+        _add_excluded(conn, replace_name)
         _set_pending_draw(
             conn,
             giveaway_name,
@@ -755,15 +780,17 @@ def reroll_giveaway(replace: str | None = None) -> tuple[list[str] | None, str |
             replace=replace_name,
             drawn=winner,
         )
+    wheel = _shuffle_entries(remaining)
     publish_overlay_spin(
         winner,
         giveaway_name,
-        remaining,
+        wheel,
         reroll=True,
         winners=[winner],
         replaced=replace_name,
+        excluded=sorted(blocked),
     )
-    return [winner], giveaway_name, remaining, replace_name
+    return [winner], giveaway_name, wheel, replace_name
 
 
 def complete_giveaway_draw() -> tuple[list[str] | None, str | None, bool, str | None, str | None]:
@@ -803,9 +830,10 @@ def finish_giveaway() -> tuple[list[str] | None, str | None]:
             return None, f"No entries for giveaway '{giveaway_name}'."
         if len(entries) < requested:
             return None, f"Need at least {requested} entries to draw {requested} winners."
-        winners = random.sample(entries, requested)
+        winners = _secure_rng.sample(entries, requested)
         _save_recorded_winners(conn, giveaway_name, winners)
-    publish_overlay_spin(winners[0], giveaway_name, entries, reroll=False, winners=winners)
+    wheel = _shuffle_entries(entries)
+    publish_overlay_spin(winners[0], giveaway_name, wheel, reroll=False, winners=winners)
     return winners, giveaway_name
 
 
@@ -831,6 +859,7 @@ def publish_overlay_spin(
     reroll: bool = False,
     winners: list[str] | None = None,
     replaced: str | None = None,
+    excluded: list[str] | None = None,
 ) -> dict:
     chosen = list(winners or [winner])
     payload = {
@@ -838,6 +867,11 @@ def publish_overlay_spin(
         "winner": winner,
         "winners": chosen,
         "replaced": replaced or "",
+        "excluded": [
+            normalize_user(item)
+            for item in (excluded or [])
+            if normalize_user(item) not in {"", "unknown"}
+        ],
         "name": name,
         "entries": list(entries),
         "reroll": reroll,
@@ -1527,6 +1561,26 @@ def get_watchtime_points() -> int:
     return parse_non_negative_int(get_setting("watchtime_points", "10"), 10)
 
 
+def parse_watchtime_minutes(raw, default: int = DEFAULT_WATCHTIME_MINUTES) -> int:
+    minutes = parse_non_negative_int(str(raw if raw is not None else default), default)
+    if minutes < MIN_WATCHTIME_MINUTES:
+        minutes = default
+    return min(minutes, MAX_WATCHTIME_MINUTES)
+
+
+def get_watchtime_minutes() -> int:
+    return parse_watchtime_minutes(get_setting("watchtime_minutes", str(DEFAULT_WATCHTIME_MINUTES)))
+
+
+def get_watch_points_seconds() -> int:
+    return get_watchtime_minutes() * 60
+
+
+def get_watch_points_cooldown() -> timedelta:
+    seconds = get_watch_points_seconds()
+    return timedelta(seconds=max(20, seconds - 30))
+
+
 def award_watch_points(users: set[str] | list[str], amount: int, *, skip: set[str] | None = None) -> int:
     if amount <= 0:
         return 0
@@ -1534,6 +1588,7 @@ def award_watch_points(users: set[str] | list[str], amount: int, *, skip: set[st
     blocked.discard("")
     starting_points = parse_non_negative_int(get_setting("starting_points", "100"), 100)
     now = utc_now()
+    cooldown = get_watch_points_cooldown()
     awarded = 0
     with db_session() as conn:
         for raw in users:
@@ -1547,7 +1602,7 @@ def award_watch_points(users: set[str] | list[str], amount: int, *, skip: set[st
             ).fetchone()
             if row and row["last_watch_reward"]:
                 last = parse_iso(row["last_watch_reward"])
-                if now - last < WATCH_POINTS_COOLDOWN:
+                if now - last < cooldown:
                     continue
             conn.execute(
                 "UPDATE points SET points = points + ?, last_watch_reward = ? WHERE user = ?",
@@ -1569,6 +1624,7 @@ def get_dashboard_settings() -> dict:
         "starting_points": parse_non_negative_int(get_setting("starting_points", "100"), 100),
         "default_raffle_cost": max(parse_non_negative_int(get_setting("default_raffle_cost", "50"), 50), 1),
         "watchtime_points": get_watchtime_points(),
+        "watchtime_minutes": get_watchtime_minutes(),
         "prefixes": ", ".join(prefixes),
         "primary_prefix": prefixes[0],
         "lurk_message": get_lurk_message(),
