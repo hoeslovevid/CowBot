@@ -441,6 +441,10 @@ html[data-theme="light"] .pill.live {
   gap: 8px;
 }
 
+.board + form {
+  margin-top: 18px;
+}
+
 .board li {
   display: grid;
   grid-template-columns: 36px 1fr auto;

@@ -372,6 +372,27 @@ def manage_giveaway():
     return finish(success, "Giveaway ended and winner posted to chat.", error)
 
 
+@app.route("/points", methods=["POST"])
+def manage_points():
+    data = posted()
+    action = (data.get("action") or "add").lower()
+    success, result = post_bot_data("/api/points", {
+        "action": action,
+        "user": data.get("points_user") or data.get("user"),
+        "amount": data.get("points_amount") or data.get("amount"),
+    })
+    if success:
+        user = result.get("user") or "that viewer"
+        total = result.get("total")
+        amount = abs(int(result.get("amount") or 0))
+        if action == "remove":
+            message = f"Removed {amount} points from {user}. Total: {total}."
+        else:
+            message = f"Gave {amount} points to {user}. Total: {total}."
+        return finish(True, message)
+    return finish(False, "Could not update points.", result.get("error") if isinstance(result, dict) else None)
+
+
 @app.route("/giveaway/draw", methods=["POST"])
 def draw_giveaway():
     data = posted()

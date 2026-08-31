@@ -262,6 +262,36 @@ def create_api_app(
             return unauthorized
         return web.json_response({"ok": True, "spin": store.get_overlay_spin()})
 
+    async def manage_points(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        if disabled := require_feature("economy"):
+            return disabled
+        payload = await request.json()
+        action = (payload.get("action") or "add").lower()
+        amount = store.parse_non_negative_int(
+            str(payload.get("amount") or payload.get("points_amount") or ""),
+            0,
+        )
+        if amount <= 0:
+            return web.json_response({"ok": False, "error": "Enter a points amount of 1 or more."}, status=400)
+        if action == "remove":
+            amount = -amount
+        elif action not in {"add", "give"}:
+            return web.json_response({"ok": False, "error": "Unknown points action."}, status=400)
+        ok, result, total = store.grant_points(
+            payload.get("user") or payload.get("points_user"),
+            amount,
+        )
+        if not ok:
+            return web.json_response({"ok": False, "error": result}, status=400)
+        user = result
+        if amount > 0:
+            await announce(f"{store.mention_user(user)} gained {amount} points. Total: {total}.")
+        else:
+            await announce(f"{store.mention_user(user)} lost {abs(amount)} points. Total: {total}.")
+        return web.json_response({"ok": True, "user": user, "amount": amount, "total": total})
+
     async def manage_quote(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
@@ -366,6 +396,7 @@ def create_api_app(
     app.router.add_post("/api/raffle", manage_raffle)
     app.router.add_post("/api/giveaway", manage_giveaway)
     app.router.add_get("/api/giveaway/overlay", giveaway_overlay)
+    app.router.add_post("/api/points", manage_points)
     app.router.add_post("/api/quote", manage_quote)
     app.router.add_post("/api/schedule", manage_schedule)
     app.router.add_post("/api/commands", manage_commands)

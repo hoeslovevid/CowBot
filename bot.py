@@ -226,10 +226,32 @@ class CowCommands(commands.Component):
         await ctx.send(store.render_lurk_message(get_author_mention(ctx)))
 
     @commands.command(name="points")
-    async def points(self, ctx: commands.Context, *, target: str | None = None):
+    async def points(self, ctx: commands.Context, *, rest: str | None = None):
         if not await require_command(ctx, "points"):
             return
-        target = store.normalize_user(target or get_author_name(ctx))
+        parts = (rest or "").split()
+        action = parts[0].lower() if parts else ""
+        if action in {"give", "add", "remove", "take"}:
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can give or remove points.")
+                return
+            if len(parts) < 3 or not parts[2].isdigit():
+                await ctx.send(f"Usage: {store.primary_prefix()}points {action} <user> <amount>")
+                return
+            amount = int(parts[2])
+            if action in {"remove", "take"}:
+                amount = -amount
+            ok, result, total = store.grant_points(parts[1], amount)
+            if not ok:
+                await ctx.send(result or "Could not update points.")
+                return
+            user = result
+            if amount > 0:
+                await ctx.send(f"{store.mention_user(user)} gained {amount} points. Total: {total}.")
+            else:
+                await ctx.send(f"{store.mention_user(user)} lost {abs(amount)} points. Total: {total}.")
+            return
+        target = store.normalize_user(rest or get_author_name(ctx))
         points = store.get_points(target)
         await ctx.send(f"{target} has {points} points.")
 

@@ -260,6 +260,17 @@ def change_points(user_name: str, amount: int) -> int:
         return row["points"]
 
 
+def grant_points(user_name: str, amount: int) -> tuple[bool, str | None, int]:
+    user = normalize_user(user_name)
+    if not user or user == "unknown":
+        return False, "Enter a Twitch username.", 0
+    if amount == 0:
+        return False, "Amount cannot be zero.", 0
+    if abs(amount) > MAX_POINT_ADJUST:
+        return False, "Amount must be 1,000,000 or less.", 0
+    return True, user, change_points(user, amount)
+
+
 def try_spend_points(user_name: str, amount: int) -> tuple[bool, int]:
     user = normalize_user(user_name)
     starting_points = get_dashboard_settings()["starting_points"]
@@ -487,6 +498,7 @@ WATCH_POINT_BOTS = {
     "botisimo",
 }
 MAX_GIVEAWAY_WINNERS = 25
+MAX_POINT_ADJUST = 1_000_000
 
 
 def parse_winner_count(raw, default: int = 1) -> int:
@@ -1091,7 +1103,7 @@ BUILTIN_COMMANDS = {
     "ping": {"blurb": "Check that the bot is responding", "module": None},
     "uptime": {"blurb": "How long the bot has been online", "module": None},
     "lurk": {"blurb": "Announce that you're lurking", "module": None},
-    "points": {"blurb": "Check a chatter's points", "module": "economy"},
+    "points": {"blurb": "Check points; mods can give or remove", "module": "economy"},
     "daily": {"blurb": "Claim the daily reward", "module": "economy"},
     "gamble": {"blurb": "Coin-flip wager", "module": "economy"},
     "roulette": {"blurb": "Roulette wager", "module": "economy"},
