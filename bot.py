@@ -678,6 +678,7 @@ class CowBot(commands.Bot):
         self.channel_user = None
         self._chat_subscribed = False
         self._chat_subscribe_lock = asyncio.Lock()
+        self._recent_message_ids: dict[str, float] = {}
         self._stream_live = False
         self._live_checked_at = 0.0
         self._live_status_logged = False
@@ -767,23 +768,41 @@ class CowBot(commands.Bot):
             self._live_status_logged = True
         return self._stream_live
 
-    def _has_chat_subscription(self) -> bool:
+    def _chat_subscription_ids(self) -> list[str]:
         try:
             subs = self.websocket_subscriptions()
         except Exception:
-            return False
-        for sub in subs.values():
+            return []
+        ids: list[str] = []
+        for sub_id, sub in subs.items():
             kind = getattr(sub.type, "value", str(sub.type))
             if str(kind) == "channel.chat.message":
-                return True
-        return False
+                ids.append(sub_id)
+        return ids
 
-    def _prune_dead_eventsub_sockets(self) -> None:
+    def _has_chat_subscription(self) -> bool:
+        return bool(self._chat_subscription_ids())
+
+    async def _prune_dead_eventsub_sockets(self) -> None:
         sockets = getattr(self, "_websockets", None) or {}
         for mapping in sockets.values():
             for session_id, websocket in list(mapping.items()):
-                if not getattr(websocket, "connected", False):
-                    mapping.pop(session_id, None)
+                if getattr(websocket, "connected", False):
+                    continue
+                try:
+                    await websocket.close()
+                except Exception:
+                    pass
+                mapping.pop(session_id, None)
+
+    async def _drop_extra_chat_subscriptions(self) -> None:
+        ids = self._chat_subscription_ids()
+        for extra_id in ids[1:]:
+            try:
+                await self.delete_websocket_subscription(extra_id, force=True)
+                print(f"Removed extra chat EventSub | {extra_id}")
+            except Exception as exc:
+                print(f"Could not remove extra chat EventSub | {extra_id}: {exc}")
 
     async def _reset_eventsub_sockets(self) -> None:
         sockets = getattr(self, "_websockets", None) or {}
@@ -796,12 +815,13 @@ class CowBot(commands.Bot):
             mapping.clear()
         self._chat_subscribed = False
 
-    async def _subscribe_to_chat(self, *, force: bool = False) -> None:
+    async def _subscribe_to_chat(self) -> None:
         if self.channel_user is None:
             return
         async with self._chat_subscribe_lock:
-            self._prune_dead_eventsub_sockets()
-            if not force and self._has_chat_subscription():
+            await self._prune_dead_eventsub_sockets()
+            await self._drop_extra_chat_subscriptions()
+            if self._has_chat_subscription():
                 self._chat_subscribed = True
                 return
             payload = eventsub.ChatMessageSubscription(
@@ -810,6 +830,7 @@ class CowBot(commands.Bot):
             )
             try:
                 await self.subscribe_websocket(payload=payload, as_bot=True, token_for=self.bot_id)
+                await self._drop_extra_chat_subscriptions()
                 self._chat_subscribed = True
                 print(f"Subscribed to chat for channel | {CHANNEL}")
             except HTTPException as exc:
@@ -822,6 +843,7 @@ class CowBot(commands.Bot):
                     await self._reset_eventsub_sockets()
                     try:
                         await self.subscribe_websocket(payload=payload, as_bot=True, token_for=self.bot_id)
+                        await self._drop_extra_chat_subscriptions()
                         self._chat_subscribed = True
                         print(f"Subscribed to chat for channel | {CHANNEL}")
                     except Exception as retry_exc:
@@ -846,7 +868,9 @@ class CowBot(commands.Bot):
             await asyncio.sleep(15)
             if self.channel_user is None:
                 continue
+            await self._prune_dead_eventsub_sockets()
             if self._has_chat_subscription():
+                await self._drop_extra_chat_subscriptions()
                 self._chat_subscribed = True
                 continue
             if self._chat_subscribed:
@@ -854,7 +878,7 @@ class CowBot(commands.Bot):
             else:
                 print("Retrying chat subscription...")
             self._chat_subscribed = False
-            await self._subscribe_to_chat(force=True)
+            await self._subscribe_to_chat()
 
     async def event_websocket_closed(self, payload) -> None:
         self._chat_subscribed = False
@@ -1076,6 +1100,16 @@ class CowBot(commands.Bot):
         print("Scheduled messages post while the stream is live. Prefixes can be changed from the dashboard.")
         await self.refresh_stream_live()
 
+    def _already_handled_message(self, message_id: str) -> bool:
+        now = time.monotonic()
+        self._recent_message_ids = {
+            key: seen for key, seen in self._recent_message_ids.items() if now - seen < 30
+        }
+        if message_id in self._recent_message_ids:
+            return True
+        self._recent_message_ids[message_id] = now
+        return False
+
     async def event_message(self, payload) -> None:
         chatter = getattr(payload.chatter, "name", None) or "unknown"
         text = getattr(payload, "text", "") or ""
@@ -1084,6 +1118,11 @@ class CowBot(commands.Bot):
             print(f"Command attempt | {chatter}: {text}")
         chatter_id = str(getattr(payload.chatter, "id", "") or "")
         if chatter_id and chatter_id == str(self.bot_id):
+            return
+        if getattr(payload, "source_broadcaster", None) is not None:
+            return
+        message_id = str(getattr(payload, "id", "") or "")
+        if message_id and self._already_handled_message(message_id):
             return
         self._note_watcher(chatter)
         await self.process_commands(payload)
