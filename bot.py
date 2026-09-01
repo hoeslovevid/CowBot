@@ -6,6 +6,7 @@ import time
 import aiohttp
 from dotenv import load_dotenv, find_dotenv
 from twitchio import Scopes, eventsub
+from twitchio.exceptions import HTTPException
 from twitchio.ext import commands
 
 import store
@@ -676,6 +677,7 @@ class CowBot(commands.Bot):
         self.start_time = store.utc_now()
         self.channel_user = None
         self._chat_subscribed = False
+        self._chat_subscribe_lock = asyncio.Lock()
         self._stream_live = False
         self._live_checked_at = 0.0
         self._live_status_logged = False
@@ -765,31 +767,102 @@ class CowBot(commands.Bot):
             self._live_status_logged = True
         return self._stream_live
 
-    async def _subscribe_to_chat(self) -> None:
-        if self._chat_subscribed or self.channel_user is None:
-            return
-        payload = eventsub.ChatMessageSubscription(
-            broadcaster_user_id=self.channel_user.id,
-            user_id=self.bot_id,
-        )
+    def _has_chat_subscription(self) -> bool:
         try:
-            await self.subscribe_websocket(payload=payload, as_bot=True, token_for=self.bot_id)
-            self._chat_subscribed = True
-            print(f"Subscribed to chat for channel | {CHANNEL}")
-        except Exception as exc:
-            print(f"Chat subscription failed: {exc}")
-            print(
-                "Chat needs a SimpleCowBot token with scopes user:read:chat, user:write:chat, user:bot, moderator:read:chatters. "
-                "Open the dashboard Settings tab and click Authorize SimpleCowBot. "
-                "In Cows_Are_Every_Where chat, /mod SimpleCowBot."
+            subs = self.websocket_subscriptions()
+        except Exception:
+            return False
+        for sub in subs.values():
+            kind = getattr(sub.type, "value", str(sub.type))
+            if str(kind) == "channel.chat.message":
+                return True
+        return False
+
+    def _prune_dead_eventsub_sockets(self) -> None:
+        sockets = getattr(self, "_websockets", None) or {}
+        for mapping in sockets.values():
+            for session_id, websocket in list(mapping.items()):
+                if not getattr(websocket, "connected", False):
+                    mapping.pop(session_id, None)
+
+    async def _reset_eventsub_sockets(self) -> None:
+        sockets = getattr(self, "_websockets", None) or {}
+        for mapping in list(sockets.values()):
+            for websocket in list(mapping.values()):
+                try:
+                    await websocket.close()
+                except Exception:
+                    pass
+            mapping.clear()
+        self._chat_subscribed = False
+
+    async def _subscribe_to_chat(self, *, force: bool = False) -> None:
+        if self.channel_user is None:
+            return
+        async with self._chat_subscribe_lock:
+            self._prune_dead_eventsub_sockets()
+            if not force and self._has_chat_subscription():
+                self._chat_subscribed = True
+                return
+            payload = eventsub.ChatMessageSubscription(
+                broadcaster_user_id=self.channel_user.id,
+                user_id=self.bot_id,
             )
+            try:
+                await self.subscribe_websocket(payload=payload, as_bot=True, token_for=self.bot_id)
+                self._chat_subscribed = True
+                print(f"Subscribed to chat for channel | {CHANNEL}")
+            except HTTPException as exc:
+                extra = f"{exc} {getattr(exc, 'extra', '')}".lower()
+                if exc.status == 409:
+                    self._chat_subscribed = True
+                    return
+                if exc.status == 400 and "session" in extra:
+                    print("Chat EventSub session expired. Opening a new websocket...")
+                    await self._reset_eventsub_sockets()
+                    try:
+                        await self.subscribe_websocket(payload=payload, as_bot=True, token_for=self.bot_id)
+                        self._chat_subscribed = True
+                        print(f"Subscribed to chat for channel | {CHANNEL}")
+                    except Exception as retry_exc:
+                        print(f"Chat resubscribe failed: {retry_exc}")
+                    return
+                print(f"Chat subscription failed: {exc}")
+                print(
+                    "Chat needs a SimpleCowBot token with scopes user:read:chat, user:write:chat, user:bot, moderator:read:chatters. "
+                    "Open the dashboard Settings tab and click Authorize SimpleCowBot. "
+                    "In Cows_Are_Every_Where chat, /mod SimpleCowBot."
+                )
+            except Exception as exc:
+                print(f"Chat subscription failed: {exc}")
+                print(
+                    "Chat needs a SimpleCowBot token with scopes user:read:chat, user:write:chat, user:bot, moderator:read:chatters. "
+                    "Open the dashboard Settings tab and click Authorize SimpleCowBot. "
+                    "In Cows_Are_Every_Where chat, /mod SimpleCowBot."
+                )
 
     async def _keep_chat_subscribed(self) -> None:
         while True:
-            await asyncio.sleep(20)
-            if not self._chat_subscribed:
+            await asyncio.sleep(15)
+            if self.channel_user is None:
+                continue
+            if self._has_chat_subscription():
+                self._chat_subscribed = True
+                continue
+            if self._chat_subscribed:
+                print("Chat EventSub dropped. Retrying subscription...")
+            else:
                 print("Retrying chat subscription...")
-                await self._subscribe_to_chat()
+            self._chat_subscribed = False
+            await self._subscribe_to_chat(force=True)
+
+    async def event_websocket_closed(self, payload) -> None:
+        self._chat_subscribed = False
+        print("EventSub websocket closed. Will resubscribe to chat.")
+
+    async def event_subscription_revoked(self, payload) -> None:
+        self._chat_subscribed = False
+        print("Chat EventSub subscription revoked. Will resubscribe.")
 
     async def event_oauth_authorized(self, payload) -> None:
         access = payload["access_token"] if isinstance(payload, dict) else payload.access_token
