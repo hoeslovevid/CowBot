@@ -46,6 +46,12 @@ EMPTY_STATUS = {
     "giveaway_winners": [],
     "last_giveaway_name": None,
     "last_giveaway_winner": None,
+    "active_queue": None,
+    "queue_open": False,
+    "queue_entries": [],
+    "queue_count": 0,
+    "queue_cap": 0,
+    "queue_called": None,
     "leaderboard": [],
     "settings": {
         "daily_min": 25,
@@ -352,6 +358,43 @@ def manage_raffle():
         return finish(success, "Raffle started in chat.", error)
     success, error = post_bot("/api/raffle", {"action": "end"})
     return finish(success, "Raffle ended and winner posted to chat.", error)
+
+
+@app.route("/queue", methods=["POST"])
+def manage_queue():
+    data = posted()
+    action = (data.get("action") or "").lower()
+    if action == "start":
+        success, error = post_bot("/api/queue", {
+            "action": "start",
+            "name": data.get("queue_name"),
+            "cap": data.get("queue_cap"),
+        })
+        return finish(success, "Queue started in chat.", error)
+    if action == "next":
+        success, result = post_bot_data("/api/queue", {"action": "next"})
+        if success:
+            called = result.get("user") or "the next person"
+            remaining = result.get("remaining")
+            leftover = f"{remaining} remaining." if remaining else "Queue is empty."
+            return finish(True, f"Called {called}. {leftover}")
+        return finish(False, "Could not call the next person.", result.get("error") if isinstance(result, dict) else None)
+    if action == "close":
+        success, error = post_bot("/api/queue", {"action": "close"})
+        return finish(success, "Queue closed. No more joins.", error)
+    if action == "open":
+        success, error = post_bot("/api/queue", {"action": "open"})
+        return finish(success, "Queue reopened for joins.", error)
+    if action == "remove":
+        success, error = post_bot("/api/queue", {
+            "action": "remove",
+            "user": data.get("queue_user") or data.get("user"),
+        })
+        return finish(success, "Removed from the queue.", error)
+    if action == "clear":
+        success, error = post_bot("/api/queue", {"action": "clear"})
+        return finish(success, "Queue cleared.", error)
+    return finish(False, "Unknown queue action.")
 
 
 @app.route("/giveaway", methods=["POST"])

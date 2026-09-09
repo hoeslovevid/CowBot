@@ -175,6 +175,17 @@ def init_db():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS queue_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                queue_name TEXT NOT NULL,
+                user TEXT NOT NULL,
+                joined_at TEXT NOT NULL,
+                UNIQUE(queue_name, user)
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -498,6 +509,7 @@ WATCH_POINT_BOTS = {
     "botisimo",
 }
 MAX_GIVEAWAY_WINNERS = 25
+MAX_QUEUE_CAP = 100
 MAX_POINT_ADJUST = 1_000_000
 
 
@@ -958,6 +970,188 @@ def get_raffle_cost(name: str) -> int | None:
         return row["entry_cost"] if row else None
 
 
+def parse_queue_cap(raw, default: int = 0) -> int:
+    cap = parse_non_negative_int(str(raw if raw is not None else default), default)
+    return min(cap, MAX_QUEUE_CAP)
+
+
+def _queue_count(conn: sqlite3.Connection, name: str) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM queue_entries WHERE queue_name = ?",
+        (name,),
+    ).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def _queue_place(conn: sqlite3.Connection, name: str, user: str) -> tuple[int, int]:
+    rows = conn.execute(
+        "SELECT user FROM queue_entries WHERE queue_name = ? ORDER BY id ASC",
+        (name,),
+    ).fetchall()
+    users = [row["user"] for row in rows]
+    try:
+        place = users.index(user) + 1
+    except ValueError:
+        place = 0
+    return place, len(users)
+
+
+def start_queue(name: str, cap: int | str | None = 0) -> tuple[bool, str | None]:
+    queue_name = normalize_user(name)
+    if not queue_name or queue_name == "unknown":
+        return False, "Queue name cannot be empty."
+    parsed_cap = parse_queue_cap(cap, 0)
+    with db_session() as conn:
+        if get_config_value(conn, "active_queue"):
+            return False, "A queue is already running. Clear it first."
+        conn.execute("DELETE FROM queue_entries WHERE queue_name = ?", (queue_name,))
+        upsert_config(conn, "active_queue", queue_name)
+        upsert_config(conn, "queue_open", "1")
+        upsert_config(conn, "queue_cap", str(parsed_cap))
+        upsert_config(conn, "last_queue_called", "")
+        upsert_config(conn, "last_queue_name", queue_name)
+    return True, queue_name
+
+
+def close_queue() -> tuple[bool, str | None]:
+    with db_session() as conn:
+        name = get_config_value(conn, "active_queue")
+        if not name:
+            return False, "No queue is currently running."
+        if get_config_value(conn, "queue_open") != "1":
+            return False, "Queue is already closed."
+        upsert_config(conn, "queue_open", "0")
+    return True, name
+
+
+def open_queue() -> tuple[bool, str | None]:
+    with db_session() as conn:
+        name = get_config_value(conn, "active_queue")
+        if not name:
+            return False, "No queue is currently running."
+        if get_config_value(conn, "queue_open") == "1":
+            return False, "Queue is already open."
+        cap = parse_queue_cap(get_config_value(conn, "queue_cap"), 0)
+        count = _queue_count(conn, name)
+        if cap and count >= cap:
+            return False, "Queue is full. Remove someone before reopening."
+        upsert_config(conn, "queue_open", "1")
+    return True, name
+
+
+def clear_queue() -> tuple[bool, str | None]:
+    with db_session() as conn:
+        name = get_config_value(conn, "active_queue")
+        if not name:
+            return False, "No queue is currently running."
+        conn.execute("DELETE FROM queue_entries WHERE queue_name = ?", (name,))
+        upsert_config(conn, "active_queue", "")
+        upsert_config(conn, "queue_open", "0")
+        upsert_config(conn, "last_queue_called", "")
+    return True, name
+
+
+def join_queue(user_name: str) -> tuple[bool, str | None, int, int]:
+    user = normalize_user(user_name)
+    if not user or user == "unknown":
+        return False, "Could not read your username.", 0, 0
+    with db_session() as conn:
+        name = get_config_value(conn, "active_queue")
+        if not name:
+            return False, "No queue is currently running.", 0, 0
+        if get_config_value(conn, "queue_open") != "1":
+            return False, "The queue is closed.", 0, 0
+        existing = conn.execute(
+            "SELECT 1 FROM queue_entries WHERE queue_name = ? AND user = ?",
+            (name, user),
+        ).fetchone()
+        if existing:
+            place, total = _queue_place(conn, name, user)
+            return False, f"{user} is already in the queue (#{place} of {total}).", place, total
+        cap = parse_queue_cap(get_config_value(conn, "queue_cap"), 0)
+        count = _queue_count(conn, name)
+        if cap and count >= cap:
+            return False, "The queue is full.", 0, count
+        conn.execute(
+            "INSERT INTO queue_entries (queue_name, user, joined_at) VALUES (?, ?, ?)",
+            (name, user, utc_now().isoformat()),
+        )
+        place, total = _queue_place(conn, name, user)
+    return True, user, place, total
+
+
+def leave_queue(user_name: str) -> tuple[bool, str | None]:
+    user = normalize_user(user_name)
+    with db_session() as conn:
+        name = get_config_value(conn, "active_queue")
+        if not name:
+            return False, "No queue is currently running."
+        cursor = conn.execute(
+            "DELETE FROM queue_entries WHERE queue_name = ? AND user = ?",
+            (name, user),
+        )
+        if cursor.rowcount == 0:
+            return False, f"{user} is not in the queue."
+    return True, user
+
+
+def next_queue() -> tuple[str | None, str | None, int]:
+    with db_session() as conn:
+        name = get_config_value(conn, "active_queue")
+        if not name:
+            return None, "No queue is currently running.", 0
+        row = conn.execute(
+            "SELECT id, user FROM queue_entries WHERE queue_name = ? ORDER BY id ASC LIMIT 1",
+            (name,),
+        ).fetchone()
+        if not row:
+            return None, "The queue is empty.", 0
+        conn.execute("DELETE FROM queue_entries WHERE id = ?", (row["id"],))
+        upsert_config(conn, "last_queue_called", row["user"])
+        remaining = _queue_count(conn, name)
+    return row["user"], None, remaining
+
+
+def remove_from_queue(user_name: str) -> tuple[bool, str | None]:
+    user = normalize_user(user_name)
+    if not user or user == "unknown":
+        return False, "Enter a Twitch username."
+    return leave_queue(user)
+
+
+def get_queue_position(user_name: str) -> tuple[int, int, str | None]:
+    user = normalize_user(user_name)
+    with db_session() as conn:
+        name = get_config_value(conn, "active_queue")
+        if not name:
+            return 0, 0, None
+        place, total = _queue_place(conn, name, user)
+        return place, total, name
+
+
+def current_queue_state() -> dict:
+    with db_session() as conn:
+        name = get_config_value(conn, "active_queue") or ""
+        open_flag = get_config_value(conn, "queue_open") == "1"
+        cap = parse_queue_cap(get_config_value(conn, "queue_cap"), 0)
+        called = get_config_value(conn, "last_queue_called") or ""
+        entries = []
+        if name:
+            rows = conn.execute(
+                "SELECT user FROM queue_entries WHERE queue_name = ? ORDER BY id ASC",
+                (name,),
+            ).fetchall()
+            entries = [{"user": row["user"], "place": index} for index, row in enumerate(rows, start=1)]
+    return {
+        "name": name or None,
+        "open": bool(name) and open_flag,
+        "cap": cap,
+        "entries": entries,
+        "count": len(entries),
+        "called": called or None,
+    }
+
+
 def get_setting(key: str, default: str) -> str:
     with db_session() as conn:
         row = conn.execute("SELECT value FROM config WHERE key = ?", (key,)).fetchone()
@@ -1049,6 +1243,11 @@ FEATURE_MODULES = {
         "blurb": "Point-entry raffles",
         "off_message": "Raffles are currently disabled.",
     },
+    "queue": {
+        "label": "Queue",
+        "blurb": "Mission queue: viewers join, you call the next player",
+        "off_message": "The queue is currently disabled.",
+    },
     "quotes": {
         "label": "Quotes",
         "blurb": "Quote lookup and adding quotes",
@@ -1112,6 +1311,7 @@ BUILTIN_COMMANDS = {
     "giveaway": {"blurb": "Join or run free-entry giveaways", "module": "giveaway"},
     "poll": {"blurb": "Start, vote, and end polls", "module": "poll"},
     "raffle": {"blurb": "Join or run point-entry raffles", "module": "raffle"},
+    "queue": {"blurb": "Join the mission queue, or leave and check your place", "module": "queue"},
     "quote": {"blurb": "Look up or add quotes", "module": "quotes"},
 }
 
@@ -1297,7 +1497,7 @@ def mark_scheduled_sent(message_id: int) -> None:
         )
 
 
-RESERVED_COMMANDS = frozenset(BUILTIN_COMMANDS)
+RESERVED_COMMANDS = frozenset(BUILTIN_COMMANDS) | {"q"}
 CUSTOM_COMMAND_COLUMNS = (
     "id, name, response, enabled, created_at, aliases, cooldown_seconds, use_count, last_used_at"
 )
@@ -1709,6 +1909,7 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
         for row in (get_poll_options(poll_name) if poll_name else [])
     ]
     giveaway = current_giveaway_state()
+    queue = current_queue_state()
     return {
         "ok": True,
         "connected": connected,
@@ -1730,6 +1931,12 @@ def dashboard_snapshot(uptime: str, bot_name: str, channel: str, connected: bool
         "giveaway_winners": giveaway["winners"],
         "last_giveaway_name": giveaway["last_name"],
         "last_giveaway_winner": get_last_giveaway_winner(),
+        "active_queue": queue["name"],
+        "queue_open": queue["open"],
+        "queue_entries": queue["entries"],
+        "queue_count": queue["count"],
+        "queue_cap": queue["cap"],
+        "queue_called": queue["called"],
         "leaderboard": [
             {"user": row["user"], "points": row["points"]}
             for row in get_leaderboard(10)

@@ -139,6 +139,49 @@ function renderGiveaway(status) {
   box.innerHTML = `<p class="live-title">${escapeHtml(status.active_giveaway)}</p><p class="muted">${locked}</p>${list}${status.giveaway_drawing ? "" : winnerBlock}`;
 }
 
+function queueMeta(status) {
+  if (status.active_queue) {
+    const count = Number(status.queue_count || 0);
+    const cap = Number(status.queue_cap || 0);
+    const lined = cap > 0 ? `${count} / ${cap} in line` : `${count} in line`;
+    return status.queue_open ? lined : `Closed · ${count} remaining`;
+  }
+  if (status.queue_called) return `Last called ${status.queue_called}`;
+  return "Waiting to start";
+}
+
+function renderQueue(status) {
+  const box = document.querySelector("[data-live='queue_live']");
+  if (!box) return;
+  if (!status.active_queue) {
+    const last = status.queue_called
+      ? `<p class="muted">Last called ${escapeHtml(status.queue_called)}.</p>`
+      : "";
+    box.innerHTML = `<p class="muted">No queue running. Start one below, then chat joins with <code>${escapeHtml(prefix())}queue</code>.</p>${last}`;
+    return;
+  }
+  const count = Number(status.queue_count || 0);
+  const cap = Number(status.queue_cap || 0);
+  const lined = cap > 0 ? `${count} / ${cap} in line` : `${count} in line`;
+  const statusLine = status.queue_open
+    ? `${lined} · type <code>${escapeHtml(prefix())}queue</code> to join`
+    : `Closed · ${count} remaining`;
+  const called = status.queue_called
+    ? `<p class="muted">Last called ${escapeHtml(status.queue_called)}</p>`
+    : "";
+  const entries = status.queue_entries || [];
+  const list = entries.length
+    ? `<ul class="winner-list">${entries.map((row, index) => {
+        const user = row.user || row;
+        const place = row.place || index + 1;
+        const upNext = index === 0 ? "is-next" : "";
+        const label = index === 0 ? `${place}. ${user} · up next` : `${place}. ${user}`;
+        return `<li class="winner-row ${upNext}"><span>${escapeHtml(label)}</span><button type="button" class="ghost" data-remove-queue-user="${escapeHtml(user)}">Remove</button></li>`;
+      }).join("")}</ul>`
+    : `<p class="muted">Waiting for joins. Ask chat to type <code>${escapeHtml(prefix())}queue</code>.</p>`;
+  box.innerHTML = `<p class="live-title">${escapeHtml(status.active_queue)}</p><p class="muted">${statusLine}</p>${list}${called}`;
+}
+
 let customCommands = [];
 let editingCommandId = "";
 
@@ -300,9 +343,12 @@ function applyStatus(status, { commands = false } = {}) {
   setText("poll_question", status.poll_question || "No active question");
   setText("active_raffle", status.active_raffle || "Idle");
   setText("raffle_cost", status.raffle_cost ? `${status.raffle_cost} points to enter` : "Waiting to start");
+  setText("active_queue", status.active_queue || "Idle");
+  setText("queue_meta", queueMeta(status));
   renderLeaderboard(status.leaderboard);
   renderPoll(status);
   renderGiveaway(status);
+  renderQueue(status);
   renderCustomCommands(status.custom_commands);
   renderScheduled(status.scheduled_messages, Boolean(status.stream_live));
   applyModuleCards(status.features);
@@ -646,6 +692,26 @@ function setupGiveawayWheel() {
   });
 }
 
+function setupQueue() {
+  document.querySelector("[data-live='queue_live']")?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-remove-queue-user]");
+    if (!button) return;
+    const user = button.dataset.removeQueueUser;
+    if (!user) return;
+    if (!window.confirm(`Remove ${user} from the queue?`)) return;
+    const body = new FormData();
+    body.set("action", "remove");
+    body.set("queue_user", user);
+    try {
+      const data = await postAction("/queue", body);
+      showToast(data.message || `Removed ${user}.`);
+      await refreshStatus();
+    } catch (error) {
+      showToast(error.message || "Could not remove from the queue.", "error");
+    }
+  });
+}
+
 function setupCopyButtons() {
   document.querySelectorAll("[data-copy-target]").forEach((button) => {
     const input = document.getElementById(button.dataset.copyTarget);
@@ -691,6 +757,7 @@ setupInstantToggles();
 setupCommandEditor();
 setupItemActions();
 setupGiveawayWheel();
+setupQueue();
 setupCopyButtons();
 showOAuthResult();
 refreshStatus();

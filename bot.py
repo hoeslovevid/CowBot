@@ -609,6 +609,139 @@ class CowCommands(commands.Component):
                 f"{store.primary_prefix()}raffle enter, {store.primary_prefix()}raffle end"
             )
 
+    @commands.command(name="queue", aliases=["q"])
+    async def queue(self, ctx: commands.Context, action: str | None = None, *, args: str | None = None):
+        if not await require_command(ctx, "queue"):
+            return
+        prefix = store.primary_prefix()
+        author_name = get_author_name(ctx)
+        mention = get_author_mention(ctx)
+        action = (action or "").lower()
+
+        if action in {"", "join"}:
+            place, total, name = store.get_queue_position(author_name)
+            if name and place:
+                await ctx.reply(f"{mention} you are #{place} of {total} in '{name}'.")
+                return
+            success, result, place, total = store.join_queue(author_name)
+            if not success:
+                await ctx.reply(f"{mention} {result or 'Could not join the queue.'}")
+                return
+            name = store.current_queue_state()["name"]
+            await ctx.reply(f"{mention} you joined '{name}' at #{place} of {total}.")
+            return
+
+        if action == "leave":
+            success, result = store.leave_queue(author_name)
+            if not success:
+                await ctx.reply(f"{mention} {result or 'Could not leave the queue.'}")
+                return
+            await ctx.reply(f"{mention} you left the queue.")
+            return
+
+        if action == "list":
+            state = store.current_queue_state()
+            if not state["name"]:
+                await ctx.send("No queue is currently running.")
+                return
+            entries = state["entries"][:10]
+            if not entries:
+                await ctx.send(f"Queue '{state['name']}' is empty.")
+                return
+            names = ", ".join(f"{row['place']}. {row['user']}" for row in entries)
+            extra = f" (+{state['count'] - 10} more)" if state["count"] > 10 else ""
+            status = "open" if state["open"] else "closed"
+            await ctx.send(f"Queue '{state['name']}' ({status}, {state['count']}): {names}{extra}")
+            return
+
+        if action == "start":
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can start the queue.")
+                return
+            if not args:
+                await ctx.send(f"Usage: {prefix}queue start <name> [max]")
+                return
+            cap = 0
+            parts = args.rsplit(None, 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                name, cap = parts[0], int(parts[1])
+            else:
+                name = args.strip()
+            success, result = store.start_queue(name, cap)
+            if not success:
+                await ctx.send(result or "Could not start queue.")
+                return
+            parsed_cap = store.current_queue_state()["cap"]
+            extra = f" Cap {parsed_cap}." if parsed_cap else ""
+            await ctx.send(f"Queue '{result}' is open! Type {prefix}queue to join.{extra}")
+            return
+
+        if action in {"next", "pop"}:
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can call the next person.")
+                return
+            user, error, remaining = store.next_queue()
+            if error:
+                await ctx.send(error)
+                return
+            name = store.current_queue_state()["name"]
+            leftover = f"{remaining} remaining." if remaining else "Queue is empty."
+            await ctx.send(f"{store.mention_user(user)} you're up for {name}! {leftover}")
+            return
+
+        if action == "close":
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can close the queue.")
+                return
+            success, result = store.close_queue()
+            if not success:
+                await ctx.send(result or "Could not close the queue.")
+                return
+            await ctx.send(f"Queue '{result}' is closed. No more joins.")
+            return
+
+        if action == "open":
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can reopen the queue.")
+                return
+            success, result = store.open_queue()
+            if not success:
+                await ctx.send(result or "Could not reopen the queue.")
+                return
+            await ctx.send(f"Queue '{result}' is open again. Type {prefix}queue to join.")
+            return
+
+        if action in {"remove", "skip"}:
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can remove people from the queue.")
+                return
+            target = (args or "").strip()
+            if not target:
+                await ctx.send(f"Usage: {prefix}queue remove <user>")
+                return
+            success, result = store.remove_from_queue(target)
+            if not success:
+                await ctx.send(result or "Could not remove that user.")
+                return
+            await ctx.send(f"{store.mention_user(result)} was removed from the queue.")
+            return
+
+        if action == "clear":
+            if not is_mod_or_broadcaster(ctx):
+                await ctx.send("Only mods and the broadcaster can clear the queue.")
+                return
+            success, result = store.clear_queue()
+            if not success:
+                await ctx.send(result or "Could not clear the queue.")
+                return
+            await ctx.send(f"Queue '{result}' was cleared.")
+            return
+
+        await ctx.send(
+            f"Queue commands: {prefix}queue, {prefix}queue leave, {prefix}queue list. "
+            f"Mods: {prefix}queue start <name> [max], {prefix}queue next, {prefix}queue close, {prefix}queue clear."
+        )
+
     @commands.command(name="transfer")
     async def transfer(self, ctx: commands.Context, target: str, amount: str):
         if not await require_command(ctx, "transfer"):

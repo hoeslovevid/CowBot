@@ -164,6 +164,58 @@ def create_api_app(
             return web.json_response({"ok": True, "winner": winner})
         return web.json_response({"ok": False, "error": "Unknown raffle action."}, status=400)
 
+    async def manage_queue(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        if disabled := require_feature("queue"):
+            return disabled
+        payload = await request.json()
+        action = (payload.get("action") or "").lower()
+        prefix = store.primary_prefix()
+        if action == "start":
+            name = (payload.get("name") or "").strip()
+            success, result = store.start_queue(name, payload.get("cap"))
+            if not success:
+                return web.json_response({"ok": False, "error": result}, status=400)
+            cap = store.current_queue_state()["cap"]
+            extra = f" Cap {cap}." if cap else ""
+            await announce(f"Queue '{result}' is open! Type {prefix}queue to join.{extra}")
+            return web.json_response({"ok": True, "name": result, "cap": cap})
+        if action == "next":
+            user, error, remaining = store.next_queue()
+            if error:
+                return web.json_response({"ok": False, "error": error}, status=400)
+            name = store.current_queue_state()["name"]
+            leftover = f"{remaining} remaining." if remaining else "Queue is empty."
+            await announce(f"{store.mention_user(user)} you're up for {name}! {leftover}")
+            return web.json_response({"ok": True, "user": user, "remaining": remaining, "name": name})
+        if action == "close":
+            success, result = store.close_queue()
+            if not success:
+                return web.json_response({"ok": False, "error": result}, status=400)
+            await announce(f"Queue '{result}' is closed. No more joins.")
+            return web.json_response({"ok": True, "name": result})
+        if action == "open":
+            success, result = store.open_queue()
+            if not success:
+                return web.json_response({"ok": False, "error": result}, status=400)
+            await announce(f"Queue '{result}' is open again. Type {prefix}queue to join.")
+            return web.json_response({"ok": True, "name": result})
+        if action == "remove":
+            user = (payload.get("user") or "").strip()
+            success, result = store.remove_from_queue(user)
+            if not success:
+                return web.json_response({"ok": False, "error": result}, status=400)
+            await announce(f"{store.mention_user(result)} was removed from the queue.")
+            return web.json_response({"ok": True, "user": result})
+        if action == "clear":
+            success, result = store.clear_queue()
+            if not success:
+                return web.json_response({"ok": False, "error": result}, status=400)
+            await announce(f"Queue '{result}' was cleared.")
+            return web.json_response({"ok": True, "name": result})
+        return web.json_response({"ok": False, "error": "Unknown queue action."}, status=400)
+
     async def manage_giveaway(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
@@ -394,6 +446,7 @@ def create_api_app(
     app.router.add_post("/api/builtin-commands", update_builtin_commands)
     app.router.add_post("/api/poll", manage_poll)
     app.router.add_post("/api/raffle", manage_raffle)
+    app.router.add_post("/api/queue", manage_queue)
     app.router.add_post("/api/giveaway", manage_giveaway)
     app.router.add_get("/api/giveaway/overlay", giveaway_overlay)
     app.router.add_post("/api/points", manage_points)

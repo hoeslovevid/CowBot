@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=15">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=16">
 </head>
 <body data-prefix="{{ status.settings.primary_prefix }}">
   <div class="spots" aria-hidden="true"></div>
@@ -88,6 +88,11 @@
         <em data-live="raffle_cost">{% if status.raffle_cost %}{{ status.raffle_cost }} points to enter{% else %}Waiting to start{% endif %}</em>
       </article>
       <article class="stat">
+        <span>Queue</span>
+        <strong data-live="active_queue">{{ status.active_queue or 'Idle' }}</strong>
+        <em data-live="queue_meta">{% if status.active_queue %}{% if status.queue_open %}{{ status.queue_count }} in line{% else %}Closed · {{ status.queue_count }} remaining{% endif %}{% elif status.queue_called %}Last called {{ status.queue_called }}{% else %}Waiting to start{% endif %}</em>
+      </article>
+      <article class="stat">
         <span>Bot</span>
         <strong data-live="bot_name">{{ status.bot_name }}</strong>
         <em>Chat prefix <code data-live="prefix">{{ status.settings.primary_prefix }}</code></em>
@@ -117,6 +122,32 @@
               <button type="button" class="ghost" id="pick-giveaway-winner">Pick winners</button>
               <button type="button" class="ghost" id="reroll-giveaway">Reroll last</button>
               <button type="submit" name="action" value="cancel" class="ghost" data-confirm="Cancel this giveaway with no winner?">Cancel</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card wide{% if not status.features.queue.enabled %} is-off{% endif %}" data-module-card="queue">
+          <div class="card-head">
+            <h2>Queue</h2>
+            <p>Viewers join in chat, then you call the next player</p>
+          </div>
+          <div class="live-box" data-live="queue_live"></div>
+          <form id="queue-form" class="stack js-form" data-action="{{ url_for('manage_queue') }}">
+            <div class="form-grid">
+              <label>Name
+                <input name="queue_name" placeholder="helldivers-mission">
+              </label>
+              <label>Max players
+                <input name="queue_cap" type="number" min="0" max="100" placeholder="0">
+                <span class="field-hint">0 or blank = unlimited</span>
+              </label>
+            </div>
+            <div class="actions">
+              <button type="submit" name="action" value="start" class="primary">Start queue</button>
+              <button type="submit" name="action" value="next" class="ghost">Next</button>
+              <button type="submit" name="action" value="close" class="ghost">Close</button>
+              <button type="submit" name="action" value="open" class="ghost">Reopen</button>
+              <button type="submit" name="action" value="clear" class="ghost" data-confirm="Clear this queue and drop everyone in line?">Clear</button>
             </div>
           </form>
         </section>
@@ -389,6 +420,6 @@
     </div>
   </div>
   <script src="{{ url_for('static', filename='wheel.js') }}?v=15"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=15"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=16"></script>
 </body>
 </html>
