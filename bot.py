@@ -97,12 +97,19 @@ def upsert_env_value(path: str, key: str, value: str) -> None:
 
 
 def persist_twitch_tokens(access_token: str, refresh_token: str) -> None:
-    env_path = find_dotenv() or os.path.join(os.getcwd(), ".env")
-    upsert_env_value(env_path, "TWITCH_TOKEN", access_token)
-    upsert_env_value(env_path, "TWITCH_REFRESH_TOKEN", refresh_token)
     os.environ["TWITCH_TOKEN"] = access_token
     os.environ["TWITCH_REFRESH_TOKEN"] = refresh_token
-    print(f"Saved new Twitch tokens to {env_path}")
+    store.set_twitch_tokens(access_token, refresh_token)
+    env_path = find_dotenv()
+    if not env_path or not os.path.isfile(env_path):
+        print("Saved new Twitch tokens to the database.")
+        return
+    try:
+        upsert_env_value(env_path, "TWITCH_TOKEN", access_token)
+        upsert_env_value(env_path, "TWITCH_REFRESH_TOKEN", refresh_token)
+        print(f"Saved new Twitch tokens to {env_path}")
+    except OSError as exc:
+        print(f"Could not write Twitch tokens to .env ({exc}). They are stored in the database.")
 
 
 def resolve_bot_id() -> str:

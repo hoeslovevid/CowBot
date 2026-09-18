@@ -39,7 +39,6 @@ def internal_bot_port() -> str:
 REQUIRED_BOT_VARS = (
     "TWITCH_CLIENT_ID",
     "TWITCH_CLIENT_SECRET",
-    "TWITCH_TOKEN",
     "TWITCH_NICK",
     "TWITCH_CHANNEL",
 )

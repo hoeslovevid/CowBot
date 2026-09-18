@@ -1,6 +1,7 @@
 import logging
 import os
 import secrets
+import time
 from urllib.parse import urlencode
 
 import requests
@@ -168,13 +169,13 @@ def fetch_status() -> dict:
         return status
 
 
-def post_bot_data(path: str, payload: dict) -> tuple[bool, dict]:
+def post_bot_data(path: str, payload: dict, timeout: int = 8) -> tuple[bool, dict]:
     try:
         response = requests.post(
             f"{BOT_API_URL}{path}",
             json=payload,
             headers=bot_headers(),
-            timeout=8,
+            timeout=timeout,
         )
         try:
             data = response.json()
@@ -306,14 +307,28 @@ def twitch_oauth_callback():
     refresh = str(payload.get("refresh_token") or "").strip()
     if not token_response.ok or not access:
         return redirect(url_for("dashboard", oauth="redirect"))
-    success, error = post_bot("/api/oauth", {
+    store.init_db()
+    store.set_twitch_tokens(access, refresh)
+    success, result = post_bot_data("/api/oauth", {
         "access_token": access,
         "refresh_token": refresh,
-    })
+    }, timeout=20)
+    if not success:
+        for _attempt in range(4):
+            time.sleep(2)
+            success, result = post_bot_data("/api/oauth", {
+                "access_token": access,
+                "refresh_token": refresh,
+            }, timeout=20)
+            if success:
+                break
+        if not success:
+            print(f"OAuth tokens saved; bot apply failed: {result.get('error')}")
+            session.pop("oauth_state", None)
+            session.pop("oauth_redirect", None)
+            return redirect(url_for("dashboard", oauth="saved"))
     session.pop("oauth_state", None)
     session.pop("oauth_redirect", None)
-    if not success:
-        return redirect(url_for("dashboard", oauth="bot"))
     return redirect(url_for("dashboard", oauth="ok"))
 
 

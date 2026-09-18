@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import Awaitable, Callable
 
@@ -85,7 +86,12 @@ def create_api_app(
             return web.json_response({"ok": False, "error": "Missing access token."}, status=400)
         store.set_twitch_tokens(access, refresh)
         if apply_tokens:
-            await apply_tokens(access, refresh)
+            async def apply_live() -> None:
+                try:
+                    await apply_tokens(access, refresh)
+                except Exception as exc:
+                    print(f"Failed to apply Twitch token live: {exc}")
+            asyncio.create_task(apply_live())
         return web.json_response({"ok": True})
 
     async def update_builtin_commands(request: web.Request) -> web.Response:
