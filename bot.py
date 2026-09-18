@@ -2,6 +2,7 @@ import os
 import random
 import asyncio
 import time
+from datetime import datetime
 
 import aiohttp
 from dotenv import load_dotenv, find_dotenv
@@ -225,6 +226,62 @@ class CowCommands(commands.Component):
         if not await require_command(ctx, "lurk"):
             return
         await ctx.send(store.render_lurk_message(get_author_mention(ctx)))
+
+    @commands.command(name="followage")
+    async def followage(self, ctx: commands.Context, target: str | None = None):
+        if not await require_command(ctx, "followage"):
+            return
+        if self.bot.channel_user is None:
+            await ctx.send("The bot is still connecting to the channel.")
+            return
+
+        channel_name = getattr(self.bot.channel_user, "display_name", None) or CHANNEL
+        looking_up_other = bool((target or "").strip())
+        if looking_up_other:
+            login = store.normalize_user(target)
+            if not login or login == "unknown":
+                await ctx.send(f"Usage: {store.primary_prefix()}followage [user]")
+                return
+            users = await self.bot.fetch_users(logins=[login])
+            if not users:
+                await ctx.send(f"Couldn't find Twitch user '{login}'.")
+                return
+            user = users[0]
+            user_id = str(user.id)
+            name = getattr(user, "display_name", None) or getattr(user, "name", None) or login
+        else:
+            chatter = getattr(ctx, "chatter", None) or getattr(ctx, "author", None)
+            user_id = str(getattr(chatter, "id", "") or "")
+            name = get_author_name(ctx)
+            if not user_id:
+                users = await self.bot.fetch_users(logins=[store.normalize_user(name)])
+                if not users:
+                    await ctx.send("Could not look up your Twitch account.")
+                    return
+                user_id = str(users[0].id)
+
+        if user_id == str(self.bot.channel_user.id):
+            if looking_up_other:
+                await ctx.send(f"{name} is the streamer.")
+            else:
+                await ctx.reply(f"{get_author_mention(ctx)} you own this channel.")
+            return
+
+        followed_at, error = await self.bot.fetch_channel_follow(user_id)
+        if error:
+            await ctx.send(error)
+            return
+        if followed_at is None:
+            if looking_up_other:
+                await ctx.send(f"{name} is not following {channel_name}.")
+            else:
+                await ctx.reply(f"{get_author_mention(ctx)} you are not following {channel_name}.")
+            return
+        duration = store.format_followage(followed_at)
+        if looking_up_other:
+            await ctx.send(f"{name} has been following for {duration}.")
+        else:
+            await ctx.reply(f"{get_author_mention(ctx)} you have been following for {duration}.")
 
     @commands.command(name="points")
     async def points(self, ctx: commands.Context, *, rest: str | None = None):
@@ -805,6 +862,7 @@ class CowBot(commands.Bot):
                 user_bot=True,
                 moderator_read_chatters=True,
                 moderator_manage_chat_messages=True,
+                moderator_read_followers=True,
             ),
         )
         self.start_time = store.utc_now()
@@ -819,6 +877,7 @@ class CowBot(commands.Bot):
         self._watch_interval_seconds = store.DEFAULT_WATCHTIME_MINUTES * 60
         self._watch_scope_warned = False
         self._pin_scope_warned = False
+        self._follow_scope_warned = False
 
     async def setup_hook(self) -> None:
         store.init_db()
@@ -827,6 +886,7 @@ class CowBot(commands.Bot):
             persist_twitch_tokens(access, refresh)
             self._watch_scope_warned = False
             self._pin_scope_warned = False
+            self._follow_scope_warned = False
             await self.add_token(access, refresh)
             await self._subscribe_to_chat()
             print("SimpleCowBot token updated. Watch points can now read chatters if the new scopes were granted.")
@@ -1036,6 +1096,40 @@ class CowBot(commands.Bot):
     def _bot_access_token(self) -> str:
         stored, _refresh = store.get_twitch_tokens()
         return stored or os.getenv("TWITCH_TOKEN") or BOT_TOKEN
+
+    async def fetch_channel_follow(self, user_id: str) -> tuple[datetime | None, str | None]:
+        if self.channel_user is None:
+            return None, "The bot is still connecting to the channel."
+        try:
+            result = await self.channel_user.fetch_followers(
+                user=user_id,
+                first=1,
+                max_results=1,
+                token_for=self.bot_id,
+            )
+            async for row in result.followers:
+                followed_at = getattr(row, "followed_at", None)
+                return followed_at, None
+            return None, None
+        except HTTPException as exc:
+            if exc.status in {401, 403}:
+                if not self._follow_scope_warned:
+                    print(f"Followage lookup failed: {exc}")
+                    print(
+                        "Followage needs moderator:read:followers. "
+                        "Open the dashboard Settings tab and click Authorize SimpleCowBot again, "
+                        "and keep SimpleCowBot modded in the channel."
+                    )
+                    self._follow_scope_warned = True
+                return None, (
+                    "Followage needs a SimpleCowBot token with follower access. "
+                    "Authorize SimpleCowBot from the dashboard and keep it modded."
+                )
+            print(f"Followage lookup failed: {exc}")
+            return None, "Could not look up followage right now."
+        except Exception as exc:
+            print(f"Followage lookup failed: {exc}")
+            return None, "Could not look up followage right now."
 
     async def _chat_pin_request(self, method: str, message_id: str) -> int:
         token = strip_oauth_prefix(self._bot_access_token())

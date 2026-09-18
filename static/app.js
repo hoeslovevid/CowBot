@@ -735,7 +735,7 @@ function setupCopyButtons() {
 function showOAuthResult() {
   const result = new URLSearchParams(window.location.search).get("oauth");
   const messages = {
-    ok: ["SimpleCowBot is connected. Watch points can see chatters now.", "success"],
+    ok: ["SimpleCowBot is connected. Watch points, pinning, and followage can use the new scopes now.", "success"],
     config: ["TWITCH_CLIENT_ID is missing on the dashboard service.", "error"],
     denied: ["Twitch login was cancelled.", "error"],
     bad: ["Twitch login failed. Try Authorize SimpleCowBot again.", "error"],

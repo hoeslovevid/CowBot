@@ -1,3 +1,4 @@
+import calendar
 import json
 import os
 import random
@@ -46,6 +47,59 @@ def format_uptime(delta: timedelta) -> str:
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours}h {minutes}m {seconds}s"
+
+
+def format_followage(started: datetime, now: datetime | None = None) -> str:
+    now = now or utc_now()
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    started = started.astimezone(timezone.utc)
+    now = now.astimezone(timezone.utc)
+    if now < started:
+        return "less than a minute"
+
+    years = now.year - started.year
+    months = now.month - started.month
+    days = now.day - started.day
+    hours = now.hour - started.hour
+    minutes = now.minute - started.minute
+    if minutes < 0:
+        hours -= 1
+        minutes += 60
+    if hours < 0:
+        days -= 1
+        hours += 24
+    if days < 0:
+        months -= 1
+        prev_month = now.month - 1 or 12
+        prev_year = now.year if now.month > 1 else now.year - 1
+        days += calendar.monthrange(prev_year, prev_month)[1]
+    if months < 0:
+        years -= 1
+        months += 12
+
+    parts: list[str] = []
+
+    def add(value: int, label: str) -> None:
+        if value > 0:
+            parts.append(f"{value} {label}{'s' if value != 1 else ''}")
+
+    add(years, "year")
+    add(months, "month")
+    add(days, "day")
+    if not parts:
+        add(hours, "hour")
+    if not parts:
+        add(minutes, "minute")
+    if not parts:
+        return "less than a minute"
+    if len(parts) == 1:
+        return parts[0]
+    if len(parts) == 2:
+        return f"{parts[0]} and {parts[1]}"
+    return f"{', '.join(parts[:-1])}, and {parts[-1]}"
 
 
 def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -1164,6 +1218,7 @@ BOT_OAUTH_SCOPES = (
     "user:bot",
     "moderator:read:chatters",
     "moderator:manage:chat_messages",
+    "moderator:read:followers",
 )
 
 
@@ -1302,6 +1357,7 @@ BUILTIN_COMMANDS = {
     "ping": {"blurb": "Check that the bot is responding", "module": None},
     "uptime": {"blurb": "How long the bot has been online", "module": None},
     "lurk": {"blurb": "Announce that you're lurking", "module": None},
+    "followage": {"blurb": "How long you or another viewer has been following", "module": None},
     "points": {"blurb": "Check points; mods can give or remove", "module": "economy"},
     "daily": {"blurb": "Claim the daily reward", "module": "economy"},
     "gamble": {"blurb": "Coin-flip wager", "module": "economy"},
