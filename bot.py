@@ -528,6 +528,48 @@ class CowCommands(commands.Component):
         leaderboard = ", ".join(f"{row['user']}({row['points']})" for row in rows)
         await ctx.send(f"Top points: {leaderboard}")
 
+    @commands.command(name="watchtime", aliases=["wt"])
+    async def watchtime(self, ctx: commands.Context, target: str | None = None):
+        if not await require_command(ctx, "watchtime"):
+            return
+        looking_up_other = bool((target or "").strip())
+        if looking_up_other:
+            name = store.normalize_user(target)
+            if not name or name == "unknown":
+                await ctx.send(f"Usage: {store.primary_prefix()}watchtime [user]")
+                return
+        else:
+            name = store.normalize_user(get_author_name(ctx))
+
+        if name == store.normalize_user(CHANNEL):
+            if looking_up_other:
+                await ctx.send(f"{name} is the streamer.")
+            else:
+                await ctx.reply(f"{get_author_mention(ctx)} you're the streamer.")
+            return
+
+        total = store.get_watch_seconds(name)
+        session = self.bot.session_watch_seconds(name)
+        if total <= 0 and session <= 0:
+            if looking_up_other:
+                await ctx.send(f"{name} has no watch time yet.")
+            else:
+                await ctx.reply(
+                    f"{get_author_mention(ctx)} you have no watch time yet. "
+                    "Hang around in chat while the stream is live."
+                )
+            return
+        if total <= 0:
+            body = f"been watching for {store.format_watchtime(session)} this stream"
+        elif session > 0:
+            body = f"watched for {store.format_watchtime(total)} ({store.format_watchtime(session)} this stream)"
+        else:
+            body = f"watched for {store.format_watchtime(total)}"
+        if looking_up_other:
+            await ctx.send(f"{name} has {body}.")
+        else:
+            await ctx.reply(f"{get_author_mention(ctx)} you have {body}.")
+
     @commands.command(name="poll")
     async def poll(self, ctx: commands.Context, action: str | None = None, *, args: str | None = None):
         if not await require_command(ctx, "poll"):
@@ -881,6 +923,7 @@ class CowBot(commands.Bot):
         self._live_checked_at = 0.0
         self._live_status_logged = False
         self._watch_chat_seen: dict[str, float] = {}
+        self._watch_session_started: dict[str, datetime] = {}
         self._watch_interval_seconds = store.DEFAULT_WATCHTIME_MINUTES * 60
         self._watch_scope_warned = False
         self._pin_scope_warned = False
@@ -1241,6 +1284,8 @@ class CowBot(commands.Bot):
             return
         now = time.monotonic()
         self._watch_chat_seen[name] = now
+        if self._stream_live:
+            self._mark_session_watcher(name)
         stale = now - (self._watch_interval_seconds * 3)
         if len(self._watch_chat_seen) > 4000:
             self._watch_chat_seen = {
@@ -1248,13 +1293,27 @@ class CowBot(commands.Bot):
             }
 
     def _watch_skip_names(self) -> set[str]:
-        names = {store.normalize_user(BOT_NICK)}
+        names = {store.normalize_user(BOT_NICK), store.normalize_user(CHANNEL)}
         bot_user = getattr(self.user, "name", None) if self.user else None
         if bot_user:
             names.add(store.normalize_user(bot_user))
         names.discard("")
         names.discard("unknown")
         return names
+
+    def _mark_session_watcher(self, user_name: str | None) -> None:
+        name = store.normalize_user(user_name)
+        if not name or name == "unknown" or name in self._watch_skip_names():
+            return
+        if name not in self._watch_session_started:
+            self._watch_session_started[name] = store.utc_now()
+
+    def session_watch_seconds(self, user_name: str) -> int:
+        name = store.normalize_user(user_name)
+        started = self._watch_session_started.get(name)
+        if not started or not self._stream_live:
+            return 0
+        return max(int((store.utc_now() - started).total_seconds()), 0)
 
     async def _current_watchers(self) -> set[str] | None:
         if self.channel_user is None:
@@ -1295,12 +1354,12 @@ class CowBot(commands.Bot):
                 self._watch_interval_seconds = interval
                 if (
                     not live
-                    or amount <= 0
                     or self.channel_user is None
                     or not store.is_feature_enabled("economy")
                 ):
                     present = set()
                     last_tick = 0.0
+                    self._watch_session_started.clear()
                     await asyncio.sleep(15)
                     continue
                 now = time.monotonic()
@@ -1311,7 +1370,15 @@ class CowBot(commands.Bot):
                 if watchers is None:
                     await asyncio.sleep(15)
                     continue
+                for name in watchers:
+                    self._mark_session_watcher(name)
                 if last_tick and present:
+                    elapsed = min(int(now - last_tick), interval * 2)
+                    store.add_watch_seconds(
+                        watchers & present,
+                        elapsed,
+                        skip=self._watch_skip_names(),
+                    )
                     awarded = store.award_watch_points(
                         watchers & present,
                         amount,

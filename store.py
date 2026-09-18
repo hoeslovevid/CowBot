@@ -102,6 +102,22 @@ def format_followage(started: datetime, now: datetime | None = None) -> str:
     return f"{', '.join(parts[:-1])}, and {parts[-1]}"
 
 
+def format_watchtime(total_seconds: int) -> str:
+    total_seconds = max(int(total_seconds), 0)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, _seconds = divmod(remainder, 60)
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+    if minutes:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    if not parts:
+        return "less than a minute"
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]} and {parts[1]}"
+
+
 def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
@@ -274,6 +290,7 @@ def init_db():
         _ensure_column(conn, "custom_commands", "use_count", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "custom_commands", "last_used_at", "TEXT")
         _ensure_column(conn, "points", "last_watch_reward", "TEXT")
+        _ensure_column(conn, "points", "watch_seconds", "INTEGER NOT NULL DEFAULT 0")
         if not conn.execute("SELECT 1 FROM config WHERE key = 'command_prefixes'").fetchone():
             env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?,!") or ("?", "!")
             upsert_config(conn, "command_prefixes", ",".join(env_prefixes))
@@ -1280,7 +1297,7 @@ def set_command_prefixes(raw: str) -> tuple[bool, str | None]:
 FEATURE_MODULES = {
     "economy": {
         "label": "Economy",
-        "blurb": "Points, daily, watch rewards, gamble, roulette, transfer, and the leaderboard",
+        "blurb": "Points, daily, watch time, watch rewards, gamble, roulette, transfer, and the leaderboard",
         "off_message": "Economy commands are currently disabled.",
     },
     "giveaway": {
@@ -1364,6 +1381,7 @@ BUILTIN_COMMANDS = {
     "roulette": {"blurb": "Roulette wager", "module": "economy"},
     "transfer": {"blurb": "Send points to another chatter", "module": "economy"},
     "leaderboard": {"blurb": "Top points in chat", "module": "economy"},
+    "watchtime": {"blurb": "How long you or another viewer has been watching", "module": "economy"},
     "giveaway": {"blurb": "Join or run free-entry giveaways", "module": "giveaway"},
     "poll": {"blurb": "Start, vote, and end polls", "module": "poll"},
     "raffle": {"blurb": "Join or run point-entry raffles", "module": "raffle"},
@@ -1553,7 +1571,7 @@ def mark_scheduled_sent(message_id: int) -> None:
         )
 
 
-RESERVED_COMMANDS = frozenset(BUILTIN_COMMANDS) | {"q"}
+RESERVED_COMMANDS = frozenset(BUILTIN_COMMANDS) | {"q", "wt"}
 CUSTOM_COMMAND_COLUMNS = (
     "id, name, response, enabled, created_at, aliases, cooldown_seconds, use_count, last_used_at"
 )
@@ -1878,6 +1896,39 @@ def award_watch_points(users: set[str] | list[str], amount: int, *, skip: set[st
             )
             awarded += 1
     return awarded
+
+
+def add_watch_seconds(users: set[str] | list[str], seconds: int, *, skip: set[str] | None = None) -> int:
+    if seconds <= 0:
+        return 0
+    blocked = {normalize_user(name) for name in (skip or set()) | WATCH_POINT_BOTS}
+    blocked.discard("")
+    starting_points = parse_non_negative_int(get_setting("starting_points", "100"), 100)
+    updated = 0
+    with db_session() as conn:
+        for raw in users:
+            user = normalize_user(raw)
+            if not user or user == "unknown" or user in blocked:
+                continue
+            ensure_user_row(conn, user, starting_points)
+            conn.execute(
+                "UPDATE points SET watch_seconds = COALESCE(watch_seconds, 0) + ? WHERE user = ?",
+                (seconds, user),
+            )
+            updated += 1
+    return updated
+
+
+def get_watch_seconds(user_name: str) -> int:
+    user = normalize_user(user_name)
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT watch_seconds FROM points WHERE user = ?",
+            (user,),
+        ).fetchone()
+        if not row:
+            return 0
+        return max(int(row["watch_seconds"] or 0), 0)
 
 
 def get_dashboard_settings() -> dict:
