@@ -739,7 +739,8 @@ function showOAuthResult() {
     config: ["TWITCH_CLIENT_ID is missing on the dashboard service.", "error"],
     denied: ["Twitch login was cancelled.", "error"],
     bad: ["Twitch login failed. Try Authorize SimpleCowBot again.", "error"],
-    redirect: ["Add the redirect URL to your Twitch app, then try again.", "error"],
+    redirect: ["Add the redirect URL shown in Settings to your Twitch app, then try again.", "error"],
+    local: ["Authorize from the live Railway dashboard, not localhost, so Twitch can send you back.", "error"],
     bot: ["The bot was offline, so the new login could not be saved. Start the bot and authorize again.", "error"],
   };
   const message = messages[result];

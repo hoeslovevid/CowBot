@@ -370,10 +370,13 @@
             <p>Reconnect the bot account so watch points can see who’s in chat, giveaways can be pinned, and followage can look up followers.</p>
           </div>
           <div class="stack">
-            <p class="muted">In the Twitch developer console for this app, add this OAuth Redirect URL, then click authorize while logged into <strong>SimpleCowBot</strong>.</p>
+            <p class="muted">Open this dashboard on the live Railway URL (not localhost). Paste this exact callback into the Twitch developer console for this app under OAuth Redirect URLs, then click authorize while logged into <strong>SimpleCowBot</strong>.</p>
             <label>Twitch redirect URL
               <input id="oauth-redirect-url" readonly value="{{ oauth_redirect_url }}">
             </label>
+            {% if 'localhost' in oauth_redirect_url or '127.0.0.1' in oauth_redirect_url %}
+            <p class="muted">This callback is local. Twitch will send you to localhost after login, which fails if the dashboard is not running here. Use the Railway site to authorize the deployed bot.</p>
+            {% endif %}
             <div class="actions">
               <a class="primary" href="{{ url_for('twitch_oauth_start') }}">Authorize SimpleCowBot</a>
               <button type="button" class="ghost" data-copy-target="oauth-redirect-url">Copy redirect URL</button>
@@ -420,6 +423,6 @@
     </div>
   </div>
   <script src="{{ url_for('static', filename='wheel.js') }}?v=15"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=17"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=18"></script>
 </body>
 </html>

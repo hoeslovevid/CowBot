@@ -74,17 +74,50 @@ EMPTY_STATUS = {
 }
 
 
-def public_origin() -> str:
-    configured = (os.getenv("PUBLIC_URL") or os.getenv("RAILWAY_PUBLIC_DOMAIN") or "").strip().rstrip("/")
-    if configured:
-        if configured.startswith("http://") or configured.startswith("https://"):
-            return configured
-        return f"https://{configured}"
-    proto = (request.headers.get("X-Forwarded-Proto") or request.scheme or "https").split(",")[0].strip()
-    host = (request.headers.get("X-Forwarded-Host") or request.host).split(",")[0].strip()
-    if "railway.app" in host and proto == "http":
+def _hostname(value: str) -> str:
+    text = (value or "").strip()
+    if "://" in text:
+        text = text.split("://", 1)[1]
+    return text.split("/")[0].split(":")[0].lower()
+
+
+def _is_loopback(value: str) -> bool:
+    return _hostname(value) in {"localhost", "127.0.0.1", "0.0.0.0", "::1", ""}
+
+
+def _origin_from_host(host: str, proto: str) -> str:
+    host = (host or "").split(",")[0].strip().rstrip("/")
+    proto = (proto or "https").split(",")[0].strip()
+    if not host:
+        return ""
+    if "railway.app" in host:
         proto = "https"
     return f"{proto}://{host}"
+
+
+def _env_public_origin() -> str:
+    for key in ("PUBLIC_URL", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL"):
+        raw = (os.getenv(key) or "").strip().rstrip("/")
+        if not raw:
+            continue
+        origin = raw if raw.startswith("http://") or raw.startswith("https://") else f"https://{raw}"
+        if not _is_loopback(origin):
+            return origin
+    return ""
+
+
+def public_origin() -> str:
+    proto = (request.headers.get("X-Forwarded-Proto") or request.scheme or "https").split(",")[0].strip()
+    host = (request.headers.get("X-Forwarded-Host") or request.host or "").split(",")[0].strip()
+    request_origin = _origin_from_host(host, proto)
+    env_origin = _env_public_origin()
+    # Prefer the host the browser actually used so Twitch sends users back here,
+    # not to a stale PUBLIC_URL like http://localhost:5000.
+    if request_origin and not _is_loopback(request_origin):
+        return request_origin
+    if env_origin:
+        return env_origin
+    return request_origin or env_origin or f"http://127.0.0.1:{PORT}"
 
 
 def overlay_page_url() -> str:
@@ -222,8 +255,13 @@ def twitch_oauth_start():
     client_id = (os.getenv("TWITCH_CLIENT_ID") or "").strip()
     if not client_id or client_id.lower().startswith("your_"):
         return redirect(url_for("dashboard", oauth="config"))
-    state = secrets.token_urlsafe(24)
     redirect_uri = oauth_callback_url()
+    if _is_loopback(redirect_uri) and _env_public_origin():
+        redirect_uri = f"{_env_public_origin()}{url_for('twitch_oauth_callback')}"
+    print(f"Twitch OAuth start | redirect_uri={redirect_uri}")
+    if _is_loopback(redirect_uri) and (os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID")):
+        return redirect(url_for("dashboard", oauth="local"))
+    state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
     session["oauth_redirect"] = redirect_uri
     params = urlencode({
