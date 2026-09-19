@@ -1,4 +1,5 @@
 import os
+import json
 import random
 import asyncio
 import time
@@ -236,11 +237,9 @@ class CowCommands(commands.Component):
         chatter = getattr(ctx, "chatter", None) or getattr(ctx, "author", None)
         ok, error = await self.bot.whisper_user(chatter, messages)
         if ok:
-            await ctx.reply("Sent you a whisper with the enabled commands.")
+            await ctx.reply("Sent you a whisper from SimpleCowBot with the enabled commands.")
             return
         await ctx.reply(error or "I couldn't whisper you the command list.")
-        if len(messages) == 1:
-            await ctx.send(messages[0])
 
     @commands.command(name="lurk")
     async def lurk(self, ctx: commands.Context):
@@ -1365,52 +1364,90 @@ class CowBot(commands.Bot):
             print(f"Subscriber count lookup failed: {exc}")
             return None, "Could not look up subscriber count right now."
 
+    def _helix_error_message(self, status: int, body: str) -> str:
+        text = (body or "").strip()
+        try:
+            data = json.loads(text) if text else {}
+        except json.JSONDecodeError:
+            data = {}
+        if isinstance(data, dict):
+            message = str(data.get("message") or "").strip()
+            if message:
+                return message
+        return text or f"HTTP {status}"
+
     async def whisper_user(self, to_user, messages: list[str]) -> tuple[bool, str | None]:
-        sender = self.user
-        if sender is None:
+        token = strip_oauth_prefix(self._bot_access_token())
+        from_id = str(self.bot_id or "")
+        to_id = str(getattr(to_user, "id", "") or "")
+        if not to_id:
+            login = store.normalize_user(getattr(to_user, "name", None))
+            if login and login != "unknown":
+                try:
+                    users = await self.fetch_users(logins=[login])
+                except Exception:
+                    users = []
+                if users:
+                    to_id = str(users[0].id)
+        if not token or not from_id:
             return False, "The bot is still connecting."
-        to_id = str(getattr(to_user, "id", None) or to_user or "")
         if not to_id:
             return False, "Couldn't find your Twitch account to whisper."
-        if str(getattr(sender, "id", "") or "") == to_id:
+        if from_id == to_id:
             return False, "I can't whisper myself."
         chunks = [str(message).strip()[:store.WHISPER_MAX_CHARS] for message in messages if str(message).strip()]
         if not chunks:
             return False, "No commands are enabled right now."
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Client-Id": TWITCH_CLIENT_ID,
+            "Content-Type": "application/json",
+        }
         try:
-            for index, message in enumerate(chunks):
-                if index:
-                    await asyncio.sleep(0.4)
-                await sender.send_whisper(to_user=to_id, message=message)
+            async with aiohttp.ClientSession() as session:
+                for index, message in enumerate(chunks):
+                    if index:
+                        await asyncio.sleep(0.4)
+                    async with session.post(
+                        "https://api.twitch.tv/helix/whispers",
+                        params={"from_user_id": from_id, "to_user_id": to_id},
+                        headers=headers,
+                        json={"message": message},
+                    ) as resp:
+                        body = await resp.text()
+                        if resp.status in {200, 204}:
+                            continue
+                        detail = self._helix_error_message(resp.status, body)
+                        print(f"Help whisper failed: {resp.status} {detail}")
+                        lower = detail.lower()
+                        if resp.status == 429:
+                            return False, "Twitch is rate-limiting whispers right now. Try again in a bit."
+                        if "phone" in lower:
+                            return False, (
+                                "SimpleCowBot needs a verified phone number on Twitch before it can send whispers."
+                            )
+                        if resp.status == 400:
+                            return False, (
+                                "Your Twitch privacy settings are blocking whispers from SimpleCowBot. "
+                                "Turn off Block whispers from strangers, or follow SimpleCowBot, then try again."
+                            )
+                        if resp.status in {401, 403}:
+                            if not self._whisper_scope_warned:
+                                print(
+                                    "Help whispers need user:manage:whispers. "
+                                    "Open the dashboard Settings tab and click Authorize SimpleCowBot again. "
+                                    "SimpleCowBot also needs a verified phone number on Twitch."
+                                )
+                                self._whisper_scope_warned = True
+                            return False, (
+                                "I couldn't whisper you. Authorize SimpleCowBot from the dashboard again, "
+                                "and make sure SimpleCowBot has a verified phone number on Twitch."
+                            )
+                        return False, (
+                            "I couldn't whisper you. Allow whispers from SimpleCowBot in Twitch privacy settings, then try again."
+                        )
             self._whisper_scope_warned = False
             return True, None
-        except HTTPException as extra_exc:
-            extra = getattr(extra_exc, "extra", "") or ""
-            extra_text = str(extra.get("message", extra) if isinstance(extra, dict) else extra)
-            detail = f"{extra_exc} {extra_text}".lower()
-            if extra_exc.status in {401, 403}:
-                if not self._whisper_scope_warned:
-                    print(f"Help whisper failed: {extra_exc}")
-                    print(
-                        "Help whispers need user:manage:whispers. "
-                        "Open the dashboard Settings tab and click Authorize SimpleCowBot again. "
-                        "SimpleCowBot also needs a verified phone number on Twitch."
-                    )
-                    self._whisper_scope_warned = True
-                return False, (
-                    "I couldn't whisper you. Authorize SimpleCowBot from the dashboard again, "
-                    "and allow whispers from the bot in your Twitch privacy settings."
-                )
-            if extra_exc.status == 429:
-                return False, "Twitch is rate-limiting whispers right now. Try again in a bit."
-            if "phone" in detail:
-                return False, (
-                    "SimpleCowBot needs a verified phone number on Twitch before it can send whispers."
-                )
-            print(f"Help whisper failed: {extra_exc}")
-            return False, (
-                "I couldn't whisper you. Allow whispers from SimpleCowBot in Twitch privacy settings, then try again."
-            )
         except Exception as exc:
             print(f"Help whisper failed: {exc}")
             return False, (
