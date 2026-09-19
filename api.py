@@ -107,6 +107,10 @@ def create_api_app(
             success, error = store.set_lurk_message(str(payload.get("lurk_message") or ""))
             if not success:
                 return web.json_response({"ok": False, "error": error}, status=400)
+        if "unlurk_message" in payload:
+            success, error = store.set_unlurk_message(str(payload.get("unlurk_message") or ""))
+            if not success:
+                return web.json_response({"ok": False, "error": error}, status=400)
         return web.json_response({
             "ok": True,
             "builtin_command_groups": store.get_command_groups(),

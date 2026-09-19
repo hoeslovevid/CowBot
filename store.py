@@ -1474,6 +1474,7 @@ BUILTIN_COMMANDS = {
     "help": {"blurb": "Whisper the commands enabled right now", "module": None},
     "uptime": {"blurb": "How long the bot has been online", "module": None},
     "lurk": {"blurb": "Announce that you're lurking", "module": None},
+    "unlurk": {"blurb": "Announce that you're back from lurking", "module": None},
     "followage": {"blurb": "How long you or another viewer has been following", "module": None},
     "streamuptime": {"blurb": "How long the stream has been live", "module": None},
     "viewers": {"blurb": "How many people are watching right now", "module": None},
@@ -1497,6 +1498,9 @@ BUILTIN_COMMANDS = {
 
 DEFAULT_LURK_MESSAGE = (
     "{user} steps back into the shadows. Pay no mind to those who lurk in the shadows."
+)
+DEFAULT_UNLURK_MESSAGE = (
+    "{user} steps back out of the shadows."
 )
 
 
@@ -2129,6 +2133,7 @@ def get_dashboard_settings() -> dict:
         "prefixes": ", ".join(prefixes),
         "primary_prefix": prefixes[0],
         "lurk_message": get_lurk_message(),
+        "unlurk_message": get_unlurk_message(),
     }
 
 
@@ -2150,6 +2155,29 @@ def set_lurk_message(raw: str) -> tuple[bool, str | None]:
 def render_lurk_message(mention: str) -> str:
     return (
         get_lurk_message()
+        .replace("{user}", mention)
+        .replace("{prefix}", primary_prefix())
+    )[:500]
+
+
+def get_unlurk_message() -> str:
+    text = get_setting("unlurk_message", DEFAULT_UNLURK_MESSAGE).strip()
+    return text or DEFAULT_UNLURK_MESSAGE
+
+
+def set_unlurk_message(raw: str) -> tuple[bool, str | None]:
+    text = " ".join(str(raw or "").split())
+    if not text:
+        return False, "Unlurk message cannot be empty."
+    if len(text) > 500:
+        return False, "Unlurk message must be 500 characters or less."
+    set_setting("unlurk_message", text)
+    return True, None
+
+
+def render_unlurk_message(mention: str) -> str:
+    return (
+        get_unlurk_message()
         .replace("{user}", mention)
         .replace("{prefix}", primary_prefix())
     )[:500]

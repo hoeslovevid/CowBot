@@ -428,7 +428,7 @@ function setupForms() {
           resetCommandForm();
         } else if (form.id !== "give-points-form" && (submitter?.value === "create" || submitter?.classList.contains("primary"))) {
           form.querySelectorAll("input:not([type='hidden']):not([type='number']), textarea").forEach((field) => {
-            if (!field.readOnly && field.name !== "lurk_message" && !["daily_min", "daily_max", "starting_points", "default_raffle_cost", "watchtime_points", "watchtime_minutes", "prefixes", "interval_minutes"].includes(field.name)) {
+            if (!field.readOnly && field.name !== "lurk_message" && field.name !== "unlurk_message" && !["daily_min", "daily_max", "starting_points", "default_raffle_cost", "watchtime_points", "watchtime_minutes", "prefixes", "interval_minutes"].includes(field.name)) {
               field.value = "";
             }
           });

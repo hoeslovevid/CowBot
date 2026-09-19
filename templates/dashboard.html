@@ -352,15 +352,18 @@
 
         <section class="card wide">
           <div class="card-head">
-            <h2>Lurk message</h2>
-            <p>Posted when someone uses the lurk command</p>
+            <h2>Lurk messages</h2>
+            <p>Posted when someone uses lurk or unlurk</p>
           </div>
           <form class="stack js-form" data-action="{{ url_for('update_lurk_message') }}">
-            <label>Message
+            <label>Lurk
               <textarea name="lurk_message" maxlength="500" rows="3">{{ status.settings.lurk_message }}</textarea>
+            </label>
+            <label>Unlurk
+              <textarea name="unlurk_message" maxlength="500" rows="3">{{ status.settings.unlurk_message }}</textarea>
               <span class="field-hint">Use <code>{user}</code> to mention the chatter.</span>
             </label>
-            <button type="submit" class="primary">Save lurk message</button>
+            <button type="submit" class="primary">Save lurk messages</button>
           </form>
         </section>
 
@@ -423,6 +426,6 @@
     </div>
   </div>
   <script src="{{ url_for('static', filename='wheel.js') }}?v=15"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=20"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=21"></script>
 </body>
 </html>

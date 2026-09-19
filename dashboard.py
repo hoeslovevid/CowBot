@@ -64,6 +64,7 @@ EMPTY_STATUS = {
         "prefixes": "?,!",
         "primary_prefix": "?",
         "lurk_message": store.DEFAULT_LURK_MESSAGE,
+        "unlurk_message": store.DEFAULT_UNLURK_MESSAGE,
     },
     "scheduled_messages": [],
     "custom_commands": [],
@@ -369,6 +370,8 @@ def update_builtin_commands():
     payload = {"commands": commands}
     if "lurk_message" in data:
         payload["lurk_message"] = data.get("lurk_message")
+    if "unlurk_message" in data:
+        payload["unlurk_message"] = data.get("unlurk_message")
     success, error = post_bot("/api/builtin-commands", payload)
     return finish(success, "Built-in commands updated.", error)
 
@@ -376,10 +379,16 @@ def update_builtin_commands():
 @app.route("/lurk-message", methods=["POST"])
 def update_lurk_message():
     data = posted()
-    success, error = post_bot("/api/builtin-commands", {
-        "lurk_message": data.get("lurk_message"),
-    })
-    return finish(success, "Lurk message saved.", error)
+    payload = {}
+    if "lurk_message" in data:
+        payload["lurk_message"] = data.get("lurk_message")
+    if "unlurk_message" in data:
+        payload["unlurk_message"] = data.get("unlurk_message")
+    success, error = post_bot("/api/builtin-commands", payload)
+    saved = "Lurk messages saved." if "unlurk_message" in payload and "lurk_message" in payload else "Lurk message saved."
+    if payload.keys() == {"unlurk_message"}:
+        saved = "Unlurk message saved."
+    return finish(success, saved, error)
 
 
 @app.route("/poll", methods=["POST"])

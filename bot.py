@@ -247,6 +247,12 @@ class CowCommands(commands.Component):
             return
         await ctx.send(store.render_lurk_message(get_author_mention(ctx)))
 
+    @commands.command(name="unlurk")
+    async def unlurk(self, ctx: commands.Context):
+        if not await require_command(ctx, "unlurk"):
+            return
+        await ctx.send(store.render_unlurk_message(get_author_mention(ctx)))
+
     @commands.command(name="followage")
     async def followage(self, ctx: commands.Context, target: str | None = None):
         if not await require_command(ctx, "followage"):
