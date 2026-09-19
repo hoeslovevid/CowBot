@@ -1484,7 +1484,7 @@ BUILTIN_COMMANDS = {
     "points": {"blurb": "Check points; mods can give or remove", "module": "economy"},
     "daily": {"blurb": "Claim the daily reward", "module": "economy"},
     "gamble": {"blurb": "Coin-flip wager; amount, percent, or all", "module": "economy"},
-    "roulette": {"blurb": "Roulette wager", "module": "economy"},
+    "roulette": {"blurb": "Roulette wager; amount, percent, or all", "module": "economy"},
     "slots": {"blurb": "Three-reel slots wager; amount, percent, or all", "module": "economy"},
     "transfer": {"blurb": "Send points to another chatter", "module": "economy"},
     "leaderboard": {"blurb": "Top points in chat", "module": "economy"},

@@ -464,11 +464,11 @@ class CowCommands(commands.Component):
             return
         author_name = get_author_name(ctx)
         user = store.normalize_user(author_name)
-        if not amount.isdigit():
-            await ctx.send(f"Usage: {store.primary_prefix()}roulette <amount>")
-            return
-        wager = int(amount)
         current = store.get_points(user)
+        wager, parse_error = store.parse_wager(amount, current)
+        if wager is None:
+            await ctx.send(f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}roulette <amount|percent|all>'}")
+            return
         if wager <= 0 or wager > current:
             await ctx.send(f"{author_name}, invalid wager. You have {current} points.")
             return
