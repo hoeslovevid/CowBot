@@ -367,10 +367,10 @@
         <section class="card wide">
           <div class="card-head">
             <h2>Authorize SimpleCowBot</h2>
-            <p>Reconnect the bot account so watch points can see who’s in chat, giveaways can be pinned, and followage can look up followers.</p>
+            <p>Reconnect the bot account so watch points can see who’s in chat, giveaways can be pinned, followage can look up followers, and !help can whisper the command list.</p>
           </div>
           <div class="stack">
-            <p class="muted">Open this dashboard on the live Railway URL (not localhost). Paste this exact callback into the Twitch developer console for this app under OAuth Redirect URLs, then click authorize while logged into <strong>SimpleCowBot</strong>.</p>
+            <p class="muted">Open this dashboard on the live Railway URL (not localhost). Paste this exact callback into the Twitch developer console for this app under OAuth Redirect URLs, then click authorize while logged into <strong>SimpleCowBot</strong>. For !help whispers, SimpleCowBot needs a verified phone number on Twitch.</p>
             <label>Twitch redirect URL
               <input id="oauth-redirect-url" readonly value="{{ oauth_redirect_url }}">
             </label>
@@ -423,6 +423,6 @@
     </div>
   </div>
   <script src="{{ url_for('static', filename='wheel.js') }}?v=15"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=19"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=20"></script>
 </body>
 </html>

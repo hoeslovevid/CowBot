@@ -2,7 +2,7 @@ import os
 import random
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import aiohttp
 from dotenv import load_dotenv, find_dotenv
@@ -228,6 +228,20 @@ class CowCommands(commands.Component):
             return
         await ctx.send("Pong")
 
+    @commands.command(name="help", aliases=["commands"])
+    async def help_command(self, ctx: commands.Context):
+        if not await require_command(ctx, "help"):
+            return
+        messages = store.help_whisper_messages()
+        chatter = getattr(ctx, "chatter", None) or getattr(ctx, "author", None)
+        ok, error = await self.bot.whisper_user(chatter, messages)
+        if ok:
+            await ctx.reply("Sent you a whisper with the enabled commands.")
+            return
+        await ctx.reply(error or "I couldn't whisper you the command list.")
+        if len(messages) == 1:
+            await ctx.send(messages[0])
+
     @commands.command(name="lurk")
     async def lurk(self, ctx: commands.Context):
         if not await require_command(ctx, "lurk"):
@@ -290,6 +304,83 @@ class CowCommands(commands.Component):
         else:
             await ctx.reply(f"{get_author_mention(ctx)} you have been following for {duration}.")
 
+    @commands.command(name="streamuptime", aliases=["stream"])
+    async def streamuptime(self, ctx: commands.Context):
+        if not await require_command(ctx, "streamuptime"):
+            return
+        stream = await self.bot.fetch_current_stream()
+        if stream is None:
+            await ctx.send("The stream is offline.")
+            return
+        started = getattr(stream, "started_at", None)
+        if isinstance(started, str):
+            started = store.parse_iso(started)
+        if started is None:
+            await ctx.send("The stream is live, but I couldn't read when it started.")
+            return
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        seconds = max(int((store.utc_now() - started).total_seconds()), 0)
+        await ctx.send(f"The stream has been live for {store.format_watchtime(seconds)}.")
+
+    @commands.command(name="viewers")
+    async def viewers(self, ctx: commands.Context):
+        if not await require_command(ctx, "viewers"):
+            return
+        stream = await self.bot.fetch_current_stream()
+        if stream is None:
+            await ctx.send("The stream is offline.")
+            return
+        count = int(getattr(stream, "viewer_count", 0) or 0)
+        label = "viewer" if count == 1 else "viewers"
+        await ctx.send(f"There {'is' if count == 1 else 'are'} {count:,} {label} right now.")
+
+    @commands.command(name="followcount", aliases=["followers", "follows"])
+    async def followcount(self, ctx: commands.Context):
+        if not await require_command(ctx, "followcount"):
+            return
+        total, error = await self.bot.fetch_follower_total()
+        if error:
+            await ctx.send(error)
+            return
+        channel_name = getattr(self.bot.channel_user, "display_name", None) or CHANNEL
+        label = "follower" if total == 1 else "followers"
+        await ctx.send(f"{channel_name} has {total:,} {label}.")
+
+    @commands.command(name="subcount", aliases=["subs", "subscribers"])
+    async def subcount(self, ctx: commands.Context):
+        if not await require_command(ctx, "subcount"):
+            return
+        total, error = await self.bot.fetch_subscriber_total()
+        if error:
+            await ctx.send(error)
+            return
+        channel_name = getattr(self.bot.channel_user, "display_name", None) or CHANNEL
+        label = "subscriber" if total == 1 else "subscribers"
+        await ctx.send(f"{channel_name} has {total:,} {label}.")
+
+    @commands.command(name="first")
+    async def first(self, ctx: commands.Context):
+        if not await require_command(ctx, "first"):
+            return
+        stream = await self.bot.fetch_current_stream()
+        stream_id = getattr(stream, "id", None) if stream is not None else None
+        author_name = get_author_name(ctx)
+        if stream is not None and self.bot._can_claim_first(author_name):
+            chatter = store.try_claim_first(author_name, stream_id)
+        else:
+            chatter = store.get_first_chatter()
+        if stream is None:
+            if chatter:
+                await ctx.send(f"{store.mention_user(chatter)} was first last stream.")
+            else:
+                await ctx.send("The stream is offline.")
+            return
+        if chatter:
+            await ctx.send(f"{store.mention_user(chatter)} was first this stream.")
+            return
+        await ctx.send("Nobody has claimed first yet.")
+
     @commands.command(name="points")
     async def points(self, ctx: commands.Context, *, rest: str | None = None):
         if not await require_command(ctx, "points"):
@@ -338,13 +429,10 @@ class CowCommands(commands.Component):
         author_name = get_author_name(ctx)
         user = store.normalize_user(author_name)
         current = store.get_points(user)
-        if amount.lower() == "all":
-            amount_value = current
-        else:
-            if not amount.isdigit():
-                await ctx.send(f"Usage: {store.primary_prefix()}gamble <amount|all>")
-                return
-            amount_value = int(amount)
+        amount_value, parse_error = store.parse_wager(amount, current)
+        if amount_value is None:
+            await ctx.send(f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}gamble <amount|percent|all>'}")
+            return
 
         if amount_value <= 0 or amount_value > current:
             await ctx.send(f"{author_name}, invalid amount. You have {current} points.")
@@ -393,6 +481,33 @@ class CowCommands(commands.Component):
             await ctx.send(f"{author_name} hit {number}! You win {payout} points! Total: {new_total}.")
         else:
             await ctx.send(f"{author_name} spun {number} and lost {wager} points. Total: {remaining}.")
+
+    @commands.command(name="slots")
+    async def slots(self, ctx: commands.Context, amount: str):
+        if not await require_command(ctx, "slots"):
+            return
+        author_name = get_author_name(ctx)
+        user = store.normalize_user(author_name)
+        current = store.get_points(user)
+        wager, parse_error = store.parse_wager(amount, current)
+        if wager is None:
+            await ctx.send(f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}slots <amount|percent|all>'}")
+            return
+        if wager <= 0 or wager > current:
+            await ctx.send(f"{author_name}, invalid amount. You have {current} points.")
+            return
+        ok, error, total, reels, payout = store.play_slots(user, wager)
+        if not ok:
+            await ctx.send(f"{author_name}, {error or 'Could not play slots.'}")
+            return
+        line = " | ".join(reels)
+        if payout >= wager * 10:
+            result = f"JACKPOT! Won {payout} points"
+        elif payout:
+            result = f"won {payout} points"
+        else:
+            result = f"lost {wager} points"
+        await ctx.send(f"{author_name} spun {line} and {result}. Total: {total}.")
 
     @commands.command(name="giveaway")
     async def giveaway(self, ctx: commands.Context, action: str | None = None, *, name: str | None = None):
@@ -912,6 +1027,7 @@ class CowBot(commands.Bot):
                 moderator_read_chatters=True,
                 moderator_manage_chat_messages=True,
                 moderator_read_followers=True,
+                user_manage_whispers=True,
             ),
         )
         self.start_time = store.utc_now()
@@ -920,6 +1036,7 @@ class CowBot(commands.Bot):
         self._chat_subscribe_lock = asyncio.Lock()
         self._recent_message_ids: dict[str, float] = {}
         self._stream_live = False
+        self._current_stream = None
         self._live_checked_at = 0.0
         self._live_status_logged = False
         self._watch_chat_seen: dict[str, float] = {}
@@ -928,6 +1045,8 @@ class CowBot(commands.Bot):
         self._watch_scope_warned = False
         self._pin_scope_warned = False
         self._follow_scope_warned = False
+        self._sub_scope_warned = False
+        self._whisper_scope_warned = False
 
     async def setup_hook(self) -> None:
         store.init_db()
@@ -937,6 +1056,8 @@ class CowBot(commands.Bot):
             self._watch_scope_warned = False
             self._pin_scope_warned = False
             self._follow_scope_warned = False
+            self._sub_scope_warned = False
+            self._whisper_scope_warned = False
             await self.add_token(access, refresh)
             await self._subscribe_to_chat()
             print("SimpleCowBot token updated. Watch points can now read chatters if the new scopes were granted.")
@@ -985,31 +1106,33 @@ class CowBot(commands.Bot):
             stream_live=self._stream_live,
         )
 
-    async def refresh_stream_live(self) -> bool:
+    async def refresh_stream_live(self, *, force: bool = False) -> bool:
         if self.channel_user is None:
             self._stream_live = False
+            self._current_stream = None
             return False
         now = time.monotonic()
-        if self._live_checked_at and now - self._live_checked_at < 45:
+        if not force and self._live_checked_at and now - self._live_checked_at < 45:
             return self._stream_live
         previous = self._stream_live
         try:
-            live = False
-            async for _stream in self.fetch_streams(
-                user_ids=[self.channel_user.id],
-                first=1,
-                max_results=1,
-            ):
-                live = True
-                break
-            self._stream_live = live
+            stream = await self.channel_user.fetch_stream()
         except Exception as exc:
             print(f"Stream live check failed: {exc}")
+        else:
+            self._current_stream = stream
+            self._stream_live = stream is not None
+            if stream is not None:
+                store.note_live_stream(str(stream.id))
         self._live_checked_at = now
         if not self._live_status_logged or previous != self._stream_live:
             print(f"Channel stream | {'live' if self._stream_live else 'offline'}")
             self._live_status_logged = True
         return self._stream_live
+
+    async def fetch_current_stream(self):
+        await self.refresh_stream_live(force=True)
+        return self._current_stream
 
     def _chat_subscription_ids(self) -> list[str]:
         try:
@@ -1181,6 +1304,119 @@ class CowBot(commands.Bot):
             print(f"Followage lookup failed: {exc}")
             return None, "Could not look up followage right now."
 
+    async def fetch_follower_total(self) -> tuple[int | None, str | None]:
+        if self.channel_user is None:
+            return None, "The bot is still connecting to the channel."
+        try:
+            result = await self.channel_user.fetch_followers(
+                first=1,
+                max_results=1,
+                token_for=self.bot_id,
+            )
+            return int(result.total), None
+        except HTTPException as exc:
+            if exc.status in {401, 403}:
+                if not self._follow_scope_warned:
+                    print(f"Follower count lookup failed: {exc}")
+                    print(
+                        "Follower count needs moderator:read:followers. "
+                        "Open the dashboard Settings tab and click Authorize SimpleCowBot again, "
+                        "and keep SimpleCowBot modded in the channel."
+                    )
+                    self._follow_scope_warned = True
+                return None, (
+                    "Follower count needs a SimpleCowBot token with follower access. "
+                    "Authorize SimpleCowBot from the dashboard and keep it modded."
+                )
+            print(f"Follower count lookup failed: {exc}")
+            return None, "Could not look up follower count right now."
+        except Exception as exc:
+            print(f"Follower count lookup failed: {exc}")
+            return None, "Could not look up follower count right now."
+
+    async def fetch_subscriber_total(self) -> tuple[int | None, str | None]:
+        if self.channel_user is None:
+            return None, "The bot is still connecting to the channel."
+        try:
+            result = await self.channel_user.fetch_broadcaster_subscriptions(
+                first=1,
+                max_results=1,
+            )
+            total = getattr(result, "total", None)
+            if total is None:
+                return None, "Twitch didn't return a subscriber count."
+            return int(total), None
+        except HTTPException as exc:
+            if exc.status in {401, 403}:
+                if not self._sub_scope_warned:
+                    print(f"Subscriber count lookup failed: {exc}")
+                    print(
+                        "Twitch only shares subscriber count with the streamer's own login. "
+                        "SimpleCowBot cannot read channel:read:subscriptions for this channel."
+                    )
+                    self._sub_scope_warned = True
+                return None, (
+                    "Twitch only shares subscriber count with the streamer's own login. "
+                    "SimpleCowBot can't read it."
+                )
+            print(f"Subscriber count lookup failed: {exc}")
+            return None, "Could not look up subscriber count right now."
+        except Exception as exc:
+            print(f"Subscriber count lookup failed: {exc}")
+            return None, "Could not look up subscriber count right now."
+
+    async def whisper_user(self, to_user, messages: list[str]) -> tuple[bool, str | None]:
+        sender = self.user
+        if sender is None:
+            return False, "The bot is still connecting."
+        to_id = str(getattr(to_user, "id", None) or to_user or "")
+        if not to_id:
+            return False, "Couldn't find your Twitch account to whisper."
+        if str(getattr(sender, "id", "") or "") == to_id:
+            return False, "I can't whisper myself."
+        chunks = [str(message).strip()[:store.WHISPER_MAX_CHARS] for message in messages if str(message).strip()]
+        if not chunks:
+            return False, "No commands are enabled right now."
+        try:
+            for index, message in enumerate(chunks):
+                if index:
+                    await asyncio.sleep(0.4)
+                await sender.send_whisper(to_user=to_id, message=message)
+            self._whisper_scope_warned = False
+            return True, None
+        except HTTPException as extra_exc:
+            extra = getattr(extra_exc, "extra", "") or ""
+            extra_text = str(extra.get("message", extra) if isinstance(extra, dict) else extra)
+            detail = f"{extra_exc} {extra_text}".lower()
+            if extra_exc.status in {401, 403}:
+                if not self._whisper_scope_warned:
+                    print(f"Help whisper failed: {extra_exc}")
+                    print(
+                        "Help whispers need user:manage:whispers. "
+                        "Open the dashboard Settings tab and click Authorize SimpleCowBot again. "
+                        "SimpleCowBot also needs a verified phone number on Twitch."
+                    )
+                    self._whisper_scope_warned = True
+                return False, (
+                    "I couldn't whisper you. Authorize SimpleCowBot from the dashboard again, "
+                    "and allow whispers from the bot in your Twitch privacy settings."
+                )
+            if extra_exc.status == 429:
+                return False, "Twitch is rate-limiting whispers right now. Try again in a bit."
+            if "phone" in detail:
+                return False, (
+                    "SimpleCowBot needs a verified phone number on Twitch before it can send whispers."
+                )
+            print(f"Help whisper failed: {extra_exc}")
+            return False, (
+                "I couldn't whisper you. Allow whispers from SimpleCowBot in Twitch privacy settings, then try again."
+            )
+        except Exception as exc:
+            print(f"Help whisper failed: {exc}")
+            return False, (
+                "I couldn't whisper you. Allow whispers from SimpleCowBot in Twitch privacy settings, then try again."
+            )
+
     async def _chat_pin_request(self, method: str, message_id: str) -> int:
         token = strip_oauth_prefix(self._bot_access_token())
         if not token or self.channel_user is None or not message_id:
@@ -1300,6 +1536,16 @@ class CowBot(commands.Bot):
         names.discard("")
         names.discard("unknown")
         return names
+
+    def _can_claim_first(self, user_name: str | None) -> bool:
+        name = store.normalize_user(user_name)
+        if not name or name == "unknown":
+            return False
+        if name in self._watch_skip_names():
+            return False
+        if name in store.WATCH_POINT_BOTS:
+            return False
+        return True
 
     def _mark_session_watcher(self, user_name: str | None) -> None:
         name = store.normalize_user(user_name)
@@ -1426,6 +1672,10 @@ class CowBot(commands.Bot):
         if message_id and self._already_handled_message(message_id):
             return
         self._note_watcher(chatter)
+        if self._stream_live and self._can_claim_first(chatter) and self._current_stream is not None:
+            stream_id = getattr(self._current_stream, "id", None)
+            if stream_id:
+                store.try_claim_first(chatter, stream_id)
         await self.process_commands(payload)
 
     async def event_command_error(self, payload: commands.CommandErrorPayload) -> None:

@@ -735,7 +735,7 @@ function setupCopyButtons() {
 function showOAuthResult() {
   const result = new URLSearchParams(window.location.search).get("oauth");
   const messages = {
-    ok: ["SimpleCowBot is connected. Watch points, pinning, and followage can use the new scopes now.", "success"],
+    ok: ["SimpleCowBot is connected. Watch points, pinning, followage, and help whispers can use the new scopes now.", "success"],
     saved: ["Login was saved. If the bot pill still says offline, wait a few seconds and refresh.", "success"],
     config: ["TWITCH_CLIENT_ID is missing on the dashboard service.", "error"],
     denied: ["Twitch login was cancelled.", "error"],

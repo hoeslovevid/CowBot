@@ -310,6 +310,26 @@ def parse_non_negative_int(value: str | None, default: int) -> int:
     return parsed if parsed >= 0 else default
 
 
+def parse_wager(raw: str | None, balance: int) -> tuple[int | None, str | None]:
+    text = str(raw or "").strip().lower().replace(",", "").replace(" ", "")
+    if not text:
+        return None, "Enter an amount, a percent like 50%, or all."
+    if text in {"all", "max"}:
+        return max(int(balance), 0), None
+    if text.endswith("%") or text.endswith("pct") or text.endswith("percent"):
+        percent_text = text.removesuffix("percent").removesuffix("pct").removesuffix("%")
+        try:
+            percent = float(percent_text)
+        except ValueError:
+            return None, "Enter a percent like 50%."
+        if percent <= 0 or percent > 100:
+            return None, "Percent must be between 1 and 100."
+        return int(max(int(balance), 0) * (percent / 100)), None
+    if not text.isdigit():
+        return None, "Enter an amount, a percent like 50%, or all."
+    return int(text), None
+
+
 def ensure_user_row(conn: sqlite3.Connection, user: str, starting_points: int) -> None:
     conn.execute(
         "INSERT INTO points (user, points) VALUES (?, ?) ON CONFLICT(user) DO NOTHING",
@@ -364,6 +384,84 @@ def try_spend_points(user_name: str, amount: int) -> tuple[bool, int]:
         )
         row = conn.execute("SELECT points FROM points WHERE user = ?", (user,)).fetchone()
         return cursor.rowcount > 0, row["points"]
+
+
+SLOT_REELS = (
+    ("🍒", 36),
+    ("🍋", 28),
+    ("🍇", 18),
+    ("🍉", 10),
+    ("⭐", 6),
+    ("7️⃣", 2),
+)
+
+
+def spin_slot_reel() -> str:
+    symbols = [symbol for symbol, _weight in SLOT_REELS]
+    weights = [weight for _symbol, weight in SLOT_REELS]
+    return _secure_rng.choices(symbols, weights=weights, k=1)[0]
+
+
+def slots_payout(reels: list[str], wager: int) -> int:
+    if len(reels) != 3 or wager <= 0:
+        return 0
+    a, b, c = reels
+    if a == b == c:
+        if a == "7️⃣":
+            return wager * 25
+        if a == "⭐":
+            return wager * 10
+        return wager * 5
+    if a == b or b == c or a == c:
+        return wager * 2
+    return 0
+
+
+def play_slots(user_name: str, amount: int) -> tuple[bool, str | None, int, list[str], int]:
+    user = normalize_user(user_name)
+    if amount <= 0:
+        return False, "Wager must be a positive number.", 0, [], 0
+    spent, remaining = try_spend_points(user, amount)
+    if not spent:
+        return False, f"Invalid amount. You have {remaining} points.", remaining, [], 0
+    reels = [spin_slot_reel(), spin_slot_reel(), spin_slot_reel()]
+    payout = slots_payout(reels, amount)
+    total = change_points(user, payout) if payout else remaining
+    return True, None, total, reels, payout
+
+
+def note_live_stream(stream_id: str | None) -> None:
+    stream_id = str(stream_id or "").strip()
+    with db_session() as conn:
+        current = get_config_value(conn, "first_stream_id")
+        if not stream_id:
+            return
+        if current == stream_id:
+            return
+        upsert_config(conn, "first_stream_id", stream_id)
+        upsert_config(conn, "first_chatter", "")
+
+
+def try_claim_first(user_name: str, stream_id: str | None) -> str | None:
+    user = normalize_user(user_name)
+    stream_id = str(stream_id or "").strip()
+    if not stream_id or not user or user == "unknown":
+        return get_first_chatter()
+    with db_session() as conn:
+        current = get_config_value(conn, "first_stream_id")
+        if current != stream_id:
+            upsert_config(conn, "first_stream_id", stream_id)
+            upsert_config(conn, "first_chatter", "")
+        existing = get_config_value(conn, "first_chatter")
+        if existing:
+            return existing
+        upsert_config(conn, "first_chatter", user)
+        return user
+
+
+def get_first_chatter() -> str | None:
+    value = get_setting("first_chatter", "")
+    return value or None
 
 
 def add_quote(text: str, author: str, added_by: str | None) -> int | None:
@@ -1236,6 +1334,7 @@ BOT_OAUTH_SCOPES = (
     "moderator:read:chatters",
     "moderator:manage:chat_messages",
     "moderator:read:followers",
+    "user:manage:whispers",
 )
 
 
@@ -1297,7 +1396,7 @@ def set_command_prefixes(raw: str) -> tuple[bool, str | None]:
 FEATURE_MODULES = {
     "economy": {
         "label": "Economy",
-        "blurb": "Points, daily, watch time, watch rewards, gamble, roulette, transfer, and the leaderboard",
+        "blurb": "Points, daily, watch time, watch rewards, gamble, roulette, slots, transfer, and the leaderboard",
         "off_message": "Economy commands are currently disabled.",
     },
     "giveaway": {
@@ -1372,13 +1471,20 @@ def set_feature_flags(flags: dict) -> None:
 
 BUILTIN_COMMANDS = {
     "ping": {"blurb": "Check that the bot is responding", "module": None},
+    "help": {"blurb": "Whisper the commands enabled right now", "module": None},
     "uptime": {"blurb": "How long the bot has been online", "module": None},
     "lurk": {"blurb": "Announce that you're lurking", "module": None},
     "followage": {"blurb": "How long you or another viewer has been following", "module": None},
+    "streamuptime": {"blurb": "How long the stream has been live", "module": None},
+    "viewers": {"blurb": "How many people are watching right now", "module": None},
+    "followcount": {"blurb": "How many followers the channel has", "module": None},
+    "subcount": {"blurb": "How many subscribers the channel has", "module": None},
+    "first": {"blurb": "Who chatted first this stream", "module": None},
     "points": {"blurb": "Check points; mods can give or remove", "module": "economy"},
     "daily": {"blurb": "Claim the daily reward", "module": "economy"},
-    "gamble": {"blurb": "Coin-flip wager", "module": "economy"},
+    "gamble": {"blurb": "Coin-flip wager; amount, percent, or all", "module": "economy"},
     "roulette": {"blurb": "Roulette wager", "module": "economy"},
+    "slots": {"blurb": "Three-reel slots wager; amount, percent, or all", "module": "economy"},
     "transfer": {"blurb": "Send points to another chatter", "module": "economy"},
     "leaderboard": {"blurb": "Top points in chat", "module": "economy"},
     "watchtime": {"blurb": "How long you or another viewer has been watching", "module": "economy"},
@@ -1459,6 +1565,73 @@ def get_command_groups(*, live: bool = True) -> list[dict]:
             ],
         })
     return groups
+
+
+WHISPER_MAX_CHARS = 500
+
+
+def _split_help_section(section: str, limit: int) -> list[str]:
+    if len(section) <= limit:
+        return [section]
+    parts = section.split()
+    chunks: list[str] = []
+    current = ""
+    for part in parts:
+        piece = part if len(part) <= limit else part[:limit]
+        candidate = f"{current} {piece}".strip()
+        if current and len(candidate) > limit:
+            chunks.append(current)
+            current = piece
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks or [section[:limit]]
+
+
+def _pack_help_whispers(header: str, sections: list[str]) -> list[str]:
+    chunks: list[str] = []
+    current = header
+    for section in sections:
+        for piece in _split_help_section(section, WHISPER_MAX_CHARS):
+            candidate = f"{current} · {piece}" if current else piece
+            if len(candidate) <= WHISPER_MAX_CHARS:
+                current = candidate
+                continue
+            if current:
+                chunks.append(current)
+            current = f"{header} · {piece}"
+            if len(current) > WHISPER_MAX_CHARS:
+                current = piece[:WHISPER_MAX_CHARS]
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def help_whisper_messages() -> list[str]:
+    prefix = primary_prefix()
+    sections: list[str] = []
+    for group in get_command_groups(live=True):
+        if not group.get("module_enabled"):
+            continue
+        names = [
+            f"{prefix}{cmd['name']}"
+            for cmd in group.get("commands") or []
+            if cmd.get("enabled")
+        ]
+        if names:
+            sections.append(f"{group['label']}: {' '.join(names)}")
+    if is_feature_enabled("custom_commands"):
+        custom = [
+            f"{prefix}{cmd['name']}"
+            for cmd in list_custom_commands()
+            if cmd.get("enabled")
+        ]
+        if custom:
+            sections.append(f"Custom: {' '.join(custom)}")
+    if not sections:
+        return ["No commands are enabled right now."]
+    return _pack_help_whispers(f"Enabled commands (prefix {prefix})", sections)
 
 
 def set_command_flags(flags: dict) -> None:
@@ -1571,7 +1744,16 @@ def mark_scheduled_sent(message_id: int) -> None:
         )
 
 
-RESERVED_COMMANDS = frozenset(BUILTIN_COMMANDS) | {"q", "wt"}
+RESERVED_COMMANDS = frozenset(BUILTIN_COMMANDS) | {
+    "q",
+    "wt",
+    "stream",
+    "followers",
+    "follows",
+    "subs",
+    "subscribers",
+    "commands",
+}
 CUSTOM_COMMAND_COLUMNS = (
     "id, name, response, enabled, created_at, aliases, cooldown_seconds, use_count, last_used_at"
 )
