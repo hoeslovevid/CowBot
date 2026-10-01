@@ -661,13 +661,6 @@ class CowCommands(commands.Component):
         else:
             name = store.normalize_user(get_author_name(ctx))
 
-        if name == store.normalize_user(CHANNEL):
-            if looking_up_other:
-                await ctx.send(f"{name} is the streamer.")
-            else:
-                await ctx.reply(f"{get_author_mention(ctx)} you're the streamer.")
-            return
-
         total = store.get_watch_seconds(name)
         session = self.bot.session_watch_seconds(name)
         if total <= 0 and session <= 0:
@@ -1572,7 +1565,7 @@ class CowBot(commands.Bot):
             }
 
     def _watch_skip_names(self) -> set[str]:
-        names = {store.normalize_user(BOT_NICK), store.normalize_user(CHANNEL)}
+        names = {store.normalize_user(BOT_NICK)}
         bot_user = getattr(self.user, "name", None) if self.user else None
         if bot_user:
             names.add(store.normalize_user(bot_user))
@@ -1583,6 +1576,8 @@ class CowBot(commands.Bot):
     def _can_claim_first(self, user_name: str | None) -> bool:
         name = store.normalize_user(user_name)
         if not name or name == "unknown":
+            return False
+        if name == store.normalize_user(CHANNEL):
             return False
         if name in self._watch_skip_names():
             return False
@@ -1659,6 +1654,9 @@ class CowBot(commands.Bot):
                 if watchers is None:
                     await asyncio.sleep(15)
                     continue
+                channel_name = store.normalize_user(CHANNEL)
+                if channel_name and channel_name not in store.WATCH_POINT_BOTS:
+                    watchers.add(channel_name)
                 for name in watchers:
                     self._mark_session_watcher(name)
                 if last_tick and present:
