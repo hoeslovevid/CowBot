@@ -326,6 +326,20 @@
               <input name="watchtime_minutes" type="number" min="1" max="60" value="{{ status.settings.watchtime_minutes }}">
               <span class="field-hint">How often those points are granted.</span>
             </label>
+            <label>Watch boost cost
+              <input name="boost_watch_cost" type="number" min="0" value="{{ status.settings.boost_watch_cost }}">
+              <span class="field-hint">Price of !boost watch. 0 turns it off.</span>
+            </label>
+            <label>Watch boost minutes
+              <input name="boost_watch_minutes" type="number" min="1" max="120" value="{{ status.settings.boost_watch_minutes }}">
+            </label>
+            <label>Luck boost cost
+              <input name="boost_luck_cost" type="number" min="0" value="{{ status.settings.boost_luck_cost }}">
+              <span class="field-hint">Price of !boost luck. Doubles gamble, slots, and roulette winnings. 0 turns it off.</span>
+            </label>
+            <label>Luck boost minutes
+              <input name="boost_luck_minutes" type="number" min="1" max="120" value="{{ status.settings.boost_luck_minutes }}">
+            </label>
             <label class="span-2">Command prefixes
               <input name="prefixes" value="{{ status.settings.prefixes }}" placeholder="?, !">
               <span class="field-hint">Comma-separated. The first one is used in bot messages. Twitch blocks <code>/</code>.</span>
@@ -426,6 +440,6 @@
     </div>
   </div>
   <script src="{{ url_for('static', filename='wheel.js') }}?v=15"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=21"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=22"></script>
 </body>
 </html>

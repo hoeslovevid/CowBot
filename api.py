@@ -56,6 +56,10 @@ def create_api_app(
         default_raffle_cost = max(store.parse_non_negative_int(str(payload.get("default_raffle_cost", "")), 50), 1)
         watchtime_points = store.parse_non_negative_int(str(payload.get("watchtime_points", "")), 10)
         watchtime_minutes = store.parse_watchtime_minutes(payload.get("watchtime_minutes"))
+        boost_watch_cost = store.parse_non_negative_int(str(payload.get("boost_watch_cost", "")), 500)
+        boost_luck_cost = store.parse_non_negative_int(str(payload.get("boost_luck_cost", "")), 1000)
+        boost_watch_minutes = store.parse_boost_minutes(payload.get("boost_watch_minutes"), 15)
+        boost_luck_minutes = store.parse_boost_minutes(payload.get("boost_luck_minutes"), 15)
         if "prefixes" in payload:
             success, error = store.set_command_prefixes(str(payload.get("prefixes") or ""))
             if not success:
@@ -66,6 +70,10 @@ def create_api_app(
         store.set_setting("default_raffle_cost", str(default_raffle_cost))
         store.set_setting("watchtime_points", str(watchtime_points))
         store.set_setting("watchtime_minutes", str(watchtime_minutes))
+        store.set_setting("boost_watch_cost", str(boost_watch_cost))
+        store.set_setting("boost_luck_cost", str(boost_luck_cost))
+        store.set_setting("boost_watch_minutes", str(boost_watch_minutes))
+        store.set_setting("boost_luck_minutes", str(boost_luck_minutes))
         return web.json_response({"ok": True, "settings": store.get_dashboard_settings()})
 
     async def update_features(request: web.Request) -> web.Response:

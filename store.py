@@ -425,7 +425,7 @@ def play_slots(user_name: str, amount: int) -> tuple[bool, str | None, int, list
     if not spent:
         return False, f"Invalid amount. You have {remaining} points.", remaining, [], 0
     reels = [spin_slot_reel(), spin_slot_reel(), spin_slot_reel()]
-    payout = slots_payout(reels, amount)
+    payout, _luck = apply_luck_winnings(amount, slots_payout(reels, amount))
     total = change_points(user, payout) if payout else remaining
     return True, None, total, reels, payout
 
@@ -1396,7 +1396,7 @@ def set_command_prefixes(raw: str) -> tuple[bool, str | None]:
 FEATURE_MODULES = {
     "economy": {
         "label": "Economy",
-        "blurb": "Points, daily, watch time, watch rewards, gamble, roulette, slots, transfer, and the leaderboard",
+        "blurb": "Points, daily, watch time, watch rewards, boosts, gamble, roulette, slots, transfer, and the leaderboard",
         "off_message": "Economy commands are currently disabled.",
     },
     "giveaway": {
@@ -1486,6 +1486,7 @@ BUILTIN_COMMANDS = {
     "gamble": {"blurb": "Coin-flip wager; amount, percent, or all", "module": "economy"},
     "roulette": {"blurb": "Roulette wager; amount, percent, or all", "module": "economy"},
     "slots": {"blurb": "Three-reel slots wager; amount, percent, or all", "module": "economy"},
+    "boost": {"blurb": "Buy a timed boost for everyone: double watch points or double gambling winnings", "module": "economy"},
     "transfer": {"blurb": "Send points to another chatter", "module": "economy"},
     "leaderboard": {"blurb": "Top points in chat", "module": "economy"},
     "watchtime": {"blurb": "How long you or another viewer has been watching", "module": "economy"},
@@ -2105,6 +2106,127 @@ def add_watch_seconds(users: set[str] | list[str], seconds: int, *, skip: set[st
     return updated
 
 
+BOOSTS = {
+    "watch": {
+        "label": "Double Watch",
+        "cost_default": 500,
+        "minutes_default": 15,
+        "summary": "doubles watch points for everyone",
+    },
+    "luck": {
+        "label": "Double Luck",
+        "cost_default": 1000,
+        "minutes_default": 15,
+        "summary": "doubles gambling winnings for everyone",
+    },
+}
+MAX_BOOST_MINUTES = 120
+
+
+def parse_boost_minutes(raw, default: int = 15) -> int:
+    minutes = parse_non_negative_int(str(raw if raw is not None else default), default)
+    if minutes < 1:
+        minutes = 1
+    return min(minutes, MAX_BOOST_MINUTES)
+
+
+def boost_cost(kind: str) -> int:
+    meta = BOOSTS[kind]
+    return parse_non_negative_int(get_setting(f"boost_{kind}_cost", str(meta["cost_default"])), meta["cost_default"])
+
+
+def boost_minutes(kind: str) -> int:
+    meta = BOOSTS[kind]
+    return parse_boost_minutes(get_setting(f"boost_{kind}_minutes", str(meta["minutes_default"])), meta["minutes_default"])
+
+
+def boost_until(kind: str) -> datetime | None:
+    if kind not in BOOSTS:
+        return None
+    raw = get_setting(f"boost_{kind}_until", "").strip()
+    if not raw:
+        return None
+    try:
+        until = parse_iso(raw)
+    except ValueError:
+        return None
+    if until <= utc_now():
+        return None
+    return until
+
+
+def is_boost_active(kind: str) -> bool:
+    return boost_until(kind) is not None
+
+
+def active_boost(kind: str) -> dict | None:
+    until = boost_until(kind)
+    if until is None:
+        return None
+    return {
+        "kind": kind,
+        "label": BOOSTS[kind]["label"],
+        "user": get_setting(f"boost_{kind}_user", "") or "someone",
+        "until": until,
+        "seconds": max(int((until - utc_now()).total_seconds()), 0),
+    }
+
+
+def apply_luck_winnings(stake: int, credit: int) -> tuple[int, bool]:
+    if credit <= 0 or stake <= 0 or not is_boost_active("luck"):
+        return credit, False
+    profit = credit - stake
+    if profit <= 0:
+        return credit, False
+    return stake + (profit * 2), True
+
+
+def boost_overview() -> str:
+    prefix = primary_prefix()
+    parts: list[str] = []
+    for kind, meta in BOOSTS.items():
+        active = active_boost(kind)
+        if active:
+            parts.append(
+                f"{active['label']} by {mention_user(active['user'])} · {format_watchtime(active['seconds'])} left"
+            )
+            continue
+        cost = boost_cost(kind)
+        if cost < 1:
+            continue
+        parts.append(f"{prefix}boost {kind} ({cost:,}) {meta['summary']}")
+    if not parts:
+        return "No boosts are available right now."
+    if not any(is_boost_active(kind) for kind in BOOSTS):
+        return "No boosts are active. " + " | ".join(parts)
+    return " | ".join(parts)
+
+
+def buy_boost(user_name: str, kind: str) -> tuple[bool, str]:
+    boost_kind = (kind or "").strip().lower()
+    meta = BOOSTS.get(boost_kind)
+    if meta is None:
+        return False, f"Usage: {primary_prefix()}boost <watch|luck>"
+    cost = boost_cost(boost_kind)
+    if cost < 1:
+        return False, f"{meta['label']} is turned off."
+    user = normalize_user(user_name)
+    spent, remaining = try_spend_points(user, cost)
+    if not spent:
+        return False, f"{meta['label']} costs {cost:,} points. You have {remaining:,}."
+    now = utc_now()
+    current = boost_until(boost_kind)
+    start = current if current is not None else now
+    until = start + timedelta(minutes=boost_minutes(boost_kind))
+    set_setting(f"boost_{boost_kind}_until", until.isoformat())
+    set_setting(f"boost_{boost_kind}_user", user)
+    verb = "extended" if current is not None else "started"
+    left = format_watchtime(max(int((until - now).total_seconds()), 0))
+    return True, (
+        f"{mention_user(user)} {verb} {meta['label']}. {left} left. {meta['summary'].capitalize()}."
+    )
+
+
 def get_watch_seconds(user_name: str) -> int:
     user = normalize_user(user_name)
     with db_session() as conn:
@@ -2130,6 +2252,10 @@ def get_dashboard_settings() -> dict:
         "default_raffle_cost": max(parse_non_negative_int(get_setting("default_raffle_cost", "50"), 50), 1),
         "watchtime_points": get_watchtime_points(),
         "watchtime_minutes": get_watchtime_minutes(),
+        "boost_watch_cost": boost_cost("watch"),
+        "boost_watch_minutes": boost_minutes("watch"),
+        "boost_luck_cost": boost_cost("luck"),
+        "boost_luck_minutes": boost_minutes("luck"),
         "prefixes": ", ".join(prefixes),
         "primary_prefix": prefixes[0],
         "lurk_message": get_lurk_message(),

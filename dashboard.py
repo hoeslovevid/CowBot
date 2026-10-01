@@ -61,6 +61,10 @@ EMPTY_STATUS = {
         "default_raffle_cost": 50,
         "watchtime_points": 10,
         "watchtime_minutes": 5,
+        "boost_watch_cost": 500,
+        "boost_watch_minutes": 15,
+        "boost_luck_cost": 1000,
+        "boost_luck_minutes": 15,
         "prefixes": "?,!",
         "primary_prefix": "?",
         "lurk_message": store.DEFAULT_LURK_MESSAGE,
@@ -343,6 +347,10 @@ def update_settings():
         "default_raffle_cost": data.get("default_raffle_cost"),
         "watchtime_points": data.get("watchtime_points"),
         "watchtime_minutes": data.get("watchtime_minutes"),
+        "boost_watch_cost": data.get("boost_watch_cost"),
+        "boost_watch_minutes": data.get("boost_watch_minutes"),
+        "boost_luck_cost": data.get("boost_luck_cost"),
+        "boost_luck_minutes": data.get("boost_luck_minutes"),
         "prefixes": data.get("prefixes"),
     })
     return finish(success, "Economy settings saved.", error)

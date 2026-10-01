@@ -449,8 +449,11 @@ class CowCommands(commands.Component):
             if not spent:
                 await ctx.send(f"{author_name}, invalid amount. You have {remaining} points.")
                 return
-            new_total = store.change_points(user, amount_value * 2)
-            await ctx.send(f"{author_name} won {amount_value} points! Total: {new_total}.")
+            credit, luck = store.apply_luck_winnings(amount_value, amount_value * 2)
+            new_total = store.change_points(user, credit)
+            won = credit - amount_value
+            suffix = " (luck boost)" if luck else ""
+            await ctx.send(f"{author_name} won {won} points{suffix}! Total: {new_total}.")
         else:
             spent, new_total = store.try_spend_points(user, amount_value)
             if not spent:
@@ -481,9 +484,10 @@ class CowCommands(commands.Component):
         number = random.randint(0, 36)
         choice = random.randint(0, 36)
         if number == choice:
-            payout = wager * 36
+            payout, luck = store.apply_luck_winnings(wager, wager * 36)
             new_total = store.change_points(user, payout)
-            await ctx.send(f"{author_name} hit {number}! You win {payout} points! Total: {new_total}.")
+            suffix = " (luck boost)" if luck else ""
+            await ctx.send(f"{author_name} hit {number}! You win {payout} points{suffix}! Total: {new_total}.")
         else:
             await ctx.send(f"{author_name} spun {number} and lost {wager} points. Total: {remaining}.")
 
@@ -506,13 +510,25 @@ class CowCommands(commands.Component):
             await ctx.send(f"{author_name}, {error or 'Could not play slots.'}")
             return
         line = " | ".join(reels)
+        luck = bool(payout) and store.is_boost_active("luck")
+        suffix = " (luck boost)" if luck else ""
         if payout >= wager * 10:
-            result = f"JACKPOT! Won {payout} points"
+            result = f"JACKPOT! Won {payout} points{suffix}"
         elif payout:
-            result = f"won {payout} points"
+            result = f"won {payout} points{suffix}"
         else:
             result = f"lost {wager} points"
         await ctx.send(f"{author_name} spun {line} and {result}. Total: {total}.")
+
+    @commands.command(name="boost")
+    async def boost(self, ctx: commands.Context, kind: str | None = None):
+        if not await require_command(ctx, "boost"):
+            return
+        if not (kind or "").strip():
+            await ctx.send(store.boost_overview())
+            return
+        _ok, message = store.buy_boost(get_author_name(ctx), kind)
+        await ctx.send(message)
 
     @commands.command(name="giveaway")
     async def giveaway(self, ctx: commands.Context, action: str | None = None, *, name: str | None = None):
@@ -1634,6 +1650,8 @@ class CowBot(commands.Bot):
             try:
                 live = await self.refresh_stream_live()
                 amount = store.get_watchtime_points()
+                if store.is_boost_active("watch"):
+                    amount *= 2
                 interval = store.get_watch_points_seconds()
                 self._watch_interval_seconds = interval
                 if (
