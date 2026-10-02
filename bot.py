@@ -158,6 +158,13 @@ def get_author_mention(ctx: commands.Context) -> str:
     return f"@{name}" if name != "Unknown" else name
 
 
+_COMMAND_QUOTE_CHARS = str.maketrans("", "", "\"‘’‚‛“”„‟⹂「」『』〝〞﹁﹂﹃﹄＂｢｣«»‹›《》〈〉")
+
+
+def strip_command_quotes(text: str) -> str:
+    return text.translate(_COMMAND_QUOTE_CHARS)
+
+
 def get_invoked_argument(ctx: commands.Context, invoked: str) -> str:
     payload = getattr(ctx, "_payload", None) or getattr(ctx, "message", None)
     text = str(getattr(payload, "text", None) or getattr(ctx, "content", "") or "").strip()
@@ -1735,6 +1742,9 @@ class CowBot(commands.Bot):
             stream_id = getattr(self._current_stream, "id", None)
             if stream_id:
                 store.try_claim_first(chatter, stream_id)
+        cleaned = strip_command_quotes(text)
+        if cleaned != text:
+            payload.text = cleaned
         await self.process_commands(payload)
 
     async def event_command_error(self, payload: commands.CommandErrorPayload) -> None:
@@ -1775,7 +1785,7 @@ class CowBot(commands.Bot):
             else:
                 await ctx.send(f"Usage: {store.primary_prefix()}{command_name}")
             return
-        if isinstance(error, commands.BadArgument):
+        if isinstance(error, commands.ArgumentError):
             await ctx.send("Invalid argument.")
             return
         await super().event_command_error(payload)
