@@ -10,6 +10,7 @@ from flask import Flask, flash, jsonify, make_response, redirect, render_templat
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import store
+import tts
 
 env_path = find_dotenv()
 if env_path:
@@ -72,6 +73,9 @@ EMPTY_STATUS = {
     },
     "scheduled_messages": [],
     "custom_commands": [],
+    "tts": {"settings": dict(tts.DEFAULTS), "queue": [], "history": [], "paused": False,
+            "player_connected": False, "engine": {"available": False, "name": "Offline", "error": "Start the bot to use text to speech."},
+            "connection": {"authorized": False, "bits": False, "points": False, "error": "Connect your streamer account to listen for redemptions."}},
     "features": {
         key: {**meta, "enabled": True}
         for key, meta in store.FEATURE_MODULES.items()
@@ -227,7 +231,7 @@ def finish(success: bool, ok_message: str, error: str | None = None):
 def cache_static(response):
     if request.path.startswith("/static/"):
         name = request.path.rsplit("/", 1)[-1]
-        if name in {"overlay.js", "wheel.js", "styles.css", "dashboard.css"}:
+        if name in {"overlay.js", "wheel.js", "styles.css", "dashboard.css", "tts-dashboard.js", "tts-player.js"}:
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
         else:
             response.headers["Cache-Control"] = "public, max-age=604800, immutable"
@@ -256,8 +260,9 @@ def dashboard():
     )
 
 
-@app.route("/oauth")
-def twitch_oauth_start():
+@app.route("/oauth/streamer", defaults={"streamer": True})
+@app.route("/oauth", defaults={"streamer": False})
+def twitch_oauth_start(streamer=False):
     client_id = (os.getenv("TWITCH_CLIENT_ID") or "").strip()
     if not client_id or client_id.lower().startswith("your_"):
         return redirect(url_for("dashboard", oauth="config"))
@@ -270,11 +275,12 @@ def twitch_oauth_start():
     state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
     session["oauth_redirect"] = redirect_uri
+    session["oauth_kind"] = "streamer" if streamer else "bot"
     params = urlencode({
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": " ".join(store.BOT_OAUTH_SCOPES),
+        "scope": " ".join(tts.STREAMER_SCOPES if streamer else store.BOT_OAUTH_SCOPES),
         "force_verify": "true",
         "state": state,
     })
@@ -283,7 +289,7 @@ def twitch_oauth_start():
 
 @app.route("/oauth/callback")
 def twitch_oauth_callback():
-    if request.args.get("state") != session.get("oauth_state"):
+    if not session.get("oauth_state") or request.args.get("state") != session.get("oauth_state"):
         return redirect(url_for("dashboard", oauth="bad"))
     if request.args.get("error"):
         return redirect(url_for("dashboard", oauth="denied"))
@@ -313,6 +319,21 @@ def twitch_oauth_callback():
     if not token_response.ok or not access:
         return redirect(url_for("dashboard", oauth="redirect"))
     store.init_db()
+    if session.get("oauth_kind") == "streamer":
+        try:
+            validation_response = requests.get("https://id.twitch.tv/oauth2/validate", headers={"Authorization": f"OAuth {access}"}, timeout=12)
+            validation = validation_response.json()
+        except (requests.RequestException, ValueError):
+            return redirect(url_for("dashboard", oauth="bad"))
+        expected = (os.getenv("TWITCH_CHANNEL") or "").strip().lstrip("#").lower()
+        if not validation_response.ok or not expected or validation.get("login", "").lower() != expected or validation.get("client_id") != client_id or not set(tts.STREAMER_SCOPES).issubset(validation.get("scopes") or []):
+            return redirect(url_for("dashboard", oauth="streamer_wrong"))
+        tts.set_streamer_tokens(access, refresh, validation["user_id"], validation["login"])
+        success, _result = post_bot_data("/api/tts/oauth", {"access_token": access, "refresh_token": refresh}, timeout=25)
+        session.pop("oauth_state", None)
+        session.pop("oauth_redirect", None)
+        session.pop("oauth_kind", None)
+        return redirect(url_for("dashboard", oauth="streamer_ok" if success else "streamer_saved"))
     store.set_twitch_tokens(access, refresh)
     success, result = post_bot_data("/api/oauth", {
         "access_token": access,
@@ -335,6 +356,70 @@ def twitch_oauth_callback():
     session.pop("oauth_state", None)
     session.pop("oauth_redirect", None)
     return redirect(url_for("dashboard", oauth="ok"))
+
+
+def tts_bot_get(path):
+    try:
+        response = requests.get(f"{BOT_API_URL}{path}", headers=bot_headers(), timeout=12)
+        data = response.json()
+        return data, response.status_code
+    except (requests.RequestException, ValueError):
+        return {"ok": False, "error": "The bot is unavailable. Start the bot and try again."}, 503
+
+
+@app.route("/tts", methods=["POST"])
+def manage_tts():
+    success, result = post_bot_data("/api/tts", request.get_json(silent=True) or {})
+    return jsonify(result), 200 if success else 400
+
+
+@app.route("/tts/rewards")
+def tts_rewards():
+    data, code = tts_bot_get("/api/tts/rewards")
+    response = jsonify(data)
+    response.headers["Cache-Control"] = "no-store"
+    return response, code
+
+
+@app.route("/tts/access")
+def tts_access():
+    data, code = tts_bot_get("/api/tts/access")
+    if data.get("ok"):
+        data = {"ok": True, "url": f"{public_origin()}{url_for('tts_overlay')}?{urlencode({'key': data['key']})}"}
+    response = jsonify(data)
+    response.headers["Cache-Control"] = "no-store"
+    return response, code
+
+
+@app.route("/overlay/tts")
+def tts_overlay():
+    response = make_response(render_template("tts_overlay.html"))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@app.route("/tts/player/<operation>", methods=["GET", "POST"])
+def tts_player(operation):
+    if operation not in {"state", "audio", "claim", "finish"}:
+        return jsonify({"ok": False, "error": "Unknown player action."}), 404
+    if (operation in {"state", "audio"}) != (request.method == "GET"):
+        return jsonify({"ok": False, "error": "Method not allowed."}), 405
+    key = request.headers.get("X-TTS-Key") or request.args.get("key", "")
+    if not key or len(key) > 100:
+        return jsonify({"ok": False, "error": "Missing player key. Copy the OBS URL from Text to speech."}), 403
+    try:
+        response = requests.request(request.method, f"{BOT_API_URL}/api/tts/player/{operation}",
+                                    headers={**bot_headers(), "X-TTS-Key": key},
+                                    params={k: v for k, v in request.args.items() if k != "key"},
+                                    json=request.get_json(silent=True) if request.method == "POST" else None,
+                                    timeout=50 if operation == "claim" else 12)
+        result = make_response(response.content, response.status_code)
+        result.headers["Content-Type"] = response.headers.get("Content-Type", "application/json")
+        result.headers["Cache-Control"] = "no-store"
+        return result
+    except requests.RequestException:
+        return jsonify({"ok": False, "error": "The bot is temporarily unavailable."}), 503
 
 
 @app.route("/update-settings", methods=["POST"])

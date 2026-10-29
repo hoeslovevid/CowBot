@@ -6,7 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DB_PATH=/data/bot.db
 
-RUN mkdir -p /data
+RUN apt-get update && apt-get install -y --no-install-recommends espeak-ng \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /data
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

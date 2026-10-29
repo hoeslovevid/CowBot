@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>CowBot TTS player</title>
+  <style>
+    html,body{margin:0;background:transparent;font:14px system-ui,sans-serif;color:#eef3ef}
+    #player-notice{margin:12px;padding:12px 16px;border:1px solid #45614b;border-radius:8px;background:#18231c;max-width:520px}
+    #player-notice:empty{display:none}button{margin:8px 0 0;display:block;padding:8px 12px;border:0;border-radius:5px;background:#b7f5ce;color:#15271c;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div id="player-notice" role="status">Connecting CowBot speech…</div>
+  <audio id="speech" preload="auto"></audio>
+  <script src="{{ url_for('static', filename='tts-player.js') }}?v=1"></script>
+</body>
+</html>

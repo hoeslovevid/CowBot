@@ -244,6 +244,32 @@ button, a.primary { padding: 9px 12px; border-radius: 6px; font-size: 11px; font
 .toast { font-size: 12px; border-radius: 9px; padding: 14px 18px; }
 .wheel-panel { border-radius: 16px; }
 .nav-backdrop { display: none; }
+.tts-summary { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 16px 19px; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; margin-bottom: 20px; }
+.tts-summary > div { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.tts-summary strong { font-size: 12px; font-weight: 550; }
+.tts-summary span:not(.status-dot) { font-size: 11px; color: var(--muted); }
+.tts-summary .status-dot.is-connected { background: var(--clover); }
+.tts-summary .tts-connect { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 11px; }
+.tts-connect .icon { width: 13px; height: 13px; }
+.tts-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .85fr); align-items: start; gap: 20px; }
+.tts-grid > .stack { gap: 18px; }
+.tts-count { padding: 2px 6px; background: var(--chip); border-radius: 4px; color: var(--muted); font-size: 10px; margin-left: 5px; }
+.tts-queue-actions { margin: 16px 0; }
+.tts-message-list { display: grid; gap: 10px; }
+.tts-message-list > .empty-state { padding: 30px 16px; background: var(--input); border: 1px dashed var(--line); border-radius: 8px; }
+.tts-message { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); min-width: 0; }
+.tts-message.is-playing { border-color: var(--focus); background: var(--soft-accent); }
+.tts-message-head, .tts-message-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tts-message-head strong { font-size: 12px; overflow-wrap: anywhere; }
+.tts-message p { margin: 10px 0; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
+.tts-message-bottom > span { font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+.tts-message-bottom .actions { flex-shrink: 0; padding-top: 0; }
+.tts-settings-section { display: grid; gap: 13px; padding-top: 16px; border-top: 1px solid var(--line); }
+.tts-settings-section h3 { margin: 0; font-size: 12px; font-weight: 550; }
+.tts-grid select { width: 100%; min-width: 0; padding: 10px; font: inherit; font-size: 11px; color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 6px; }
+.tts-grid select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.tts-grid .module-toggle { align-content: start; }
+.sidebar { overflow-y: auto; }
 @media (min-width: 1800px) { .shell { margin-left: auto; margin-right: auto; padding-left: 276px; } }
 @media (max-width: 1320px) {
   .sidebar { width: 210px; padding-inline: 14px; }
@@ -263,6 +289,8 @@ button, a.primary { padding: 9px 12px; border-radius: 6px; font-size: 11px; font
   .stat { padding: 15px; }
 }
 @media (max-width: 900px) {
+  .tts-grid { grid-template-columns: 1fr; }
+  .tts-summary { align-items: flex-start; flex-direction: column; }
   .topbar, .top-meta { flex-direction: row; align-items: center; }
   .layout, .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -274,6 +302,8 @@ button, a.primary { padding: 9px 12px; border-radius: 6px; font-size: 11px; font
   #panel-commands .layout, #panel-settings .layout { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
+  .tts-message-bottom { align-items: flex-start; flex-wrap: wrap; }
+  .tts-grid select { font-size: 16px; }
   .sidebar { transform: translateX(-100%); transition: transform .22s ease; width: 236px; }
   .sidebar { overflow-y: auto; }
   body.nav-open { overflow: hidden; }

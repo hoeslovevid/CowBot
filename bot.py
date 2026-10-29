@@ -13,6 +13,7 @@ from twitchio.ext import commands
 
 import store
 from api import create_api_app, start_api_server
+import tts
 
 
 def strip_oauth_prefix(token: str) -> str:
@@ -1068,9 +1069,12 @@ class CowBot(commands.Bot):
         self._follow_scope_warned = False
         self._sub_scope_warned = False
         self._whisper_scope_warned = False
+        self.tts = None
+        self._tts_subscription_lock = asyncio.Lock()
 
     async def setup_hook(self) -> None:
         store.init_db()
+        self.tts = tts.TTSQueue()
 
         async def apply_tokens(access: str, refresh: str) -> None:
             persist_twitch_tokens(access, refresh)
@@ -1087,6 +1091,9 @@ class CowBot(commands.Bot):
             get_status=self.api_status,
             announce=self.send_channel_message,
             apply_tokens=apply_tokens,
+            tts_queue=self.tts,
+            apply_streamer_tokens=self._apply_streamer_tokens,
+            fetch_tts_rewards=self._fetch_tts_rewards,
         )
         await start_api_server(api_app)
 
@@ -1106,6 +1113,12 @@ class CowBot(commands.Bot):
         if not users:
             raise RuntimeError(f"Could not find Twitch channel '{CHANNEL}'. Check TWITCH_CHANNEL in your .env file.")
         self.channel_user = users[0]
+        streamer_access, streamer_refresh = tts.get_streamer_tokens()
+        if streamer_access:
+            try:
+                await self._apply_streamer_tokens(streamer_access, streamer_refresh)
+            except Exception:
+                self.tts.connection["error"] = "Streamer authorization expired. Reconnect from Text to speech."
         await self._subscribe_to_chat()
         await self.add_component(CowCommands(self))
         names = ", ".join(sorted({cmd.name for cmd in self.unique_commands}))
@@ -1119,13 +1132,120 @@ class CowBot(commands.Bot):
 
     def api_status(self) -> dict:
         bot_name = getattr(self.user, "name", BOT_NICK) if self.user else BOT_NICK
-        return store.dashboard_snapshot(
+        snapshot = store.dashboard_snapshot(
             uptime=store.format_uptime(store.utc_now() - self.start_time),
             bot_name=bot_name or BOT_NICK,
             channel=CHANNEL,
             connected=self.channel_user is not None,
             stream_live=self._stream_live,
         )
+        if self.tts:
+            snapshot["tts"] = self.tts.snapshot()
+        return snapshot
+
+    async def _apply_streamer_tokens(self, access: str, refresh: str) -> None:
+        if not access or not refresh or self.channel_user is None:
+            raise ValueError("The bot must be connected before authorizing the streamer.")
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://id.twitch.tv/oauth2/validate", headers={"Authorization": f"OAuth {access}"}, timeout=aiohttp.ClientTimeout(total=12)) as response:
+                validation = await response.json()
+                status = response.status
+            if status == 401:
+                async with session.post("https://id.twitch.tv/oauth2/token", data={"client_id": TWITCH_CLIENT_ID,
+                                        "client_secret": TWITCH_CLIENT_SECRET, "grant_type": "refresh_token", "refresh_token": refresh},
+                                        timeout=aiohttp.ClientTimeout(total=12)) as response:
+                    renewed = await response.json()
+                    if response.status != 200 or not renewed.get("access_token"):
+                        raise ValueError("Streamer authorization expired.")
+                    access = renewed["access_token"]
+                    refresh = renewed.get("refresh_token", refresh)
+                async with session.get("https://id.twitch.tv/oauth2/validate", headers={"Authorization": f"OAuth {access}"}, timeout=aiohttp.ClientTimeout(total=12)) as response:
+                    validation = await response.json()
+                    status = response.status
+            if status != 200:
+                raise ValueError("Streamer authorization expired.")
+        if str(validation.get("user_id")) != str(self.channel_user.id):
+            raise ValueError("Authorize the configured streamer account.")
+        if validation.get("client_id") != TWITCH_CLIENT_ID or not set(tts.STREAMER_SCOPES).issubset(validation.get("scopes") or []):
+            raise ValueError("Grant both Bits and Channel Point access.")
+        await self.add_token(access, refresh)
+        # add_token may have refreshed the token; persist the managed pair.
+        managed = self.tokens.get(str(self.channel_user.id), {})
+        tts.set_streamer_tokens(managed.get("token", access), managed.get("refresh", refresh), str(self.channel_user.id), validation.get("login", CHANNEL))
+        self.tts.connection.update(authorized=True, error="")
+        await self._subscribe_to_tts()
+
+    async def event_token_refreshed(self, payload) -> None:
+        if str(payload.user_id) == store.get_setting("tts_streamer_id", ""):
+            tts.set_streamer_tokens(payload.token, payload.refresh_token)
+        if str(payload.user_id) == str(self.bot_id):
+            store.set_twitch_tokens(payload.token, payload.refresh_token)
+
+    async def _fetch_tts_rewards(self) -> list:
+        if self.channel_user is None or not self.tts.connection["authorized"]:
+            raise ValueError("Connect your streamer account first.")
+        rewards = await self.channel_user.fetch_custom_rewards()
+        return [{"id": reward.id, "title": reward.title, "cost": reward.cost,
+                 "input_required": reward.input_required} for reward in rewards]
+
+    async def _subscribe_to_tts(self) -> None:
+        if not self.tts or not self.channel_user or not self.tts.connection["authorized"]:
+            return
+        async with self._tts_subscription_lock:
+            subscriptions = self.websocket_subscriptions()
+            existing = {str(getattr(sub.type, "value", sub.type)) for sub in subscriptions.values()
+                        if str(sub.condition.get("broadcaster_user_id", "")) == str(self.channel_user.id)}
+            errors = []
+            for name, factory, kind in (
+                ("bits", eventsub.ChannelBitsUseSubscription, "channel.bits.use"),
+                ("points", eventsub.ChannelPointsRedeemAddSubscription, "channel.channel_points_custom_reward_redemption.add"),
+                ("points", eventsub.ChannelPointsRedeemUpdateSubscription, "channel.channel_points_custom_reward_redemption.update"),
+            ):
+                try:
+                    if kind not in existing:
+                        await self.subscribe_websocket(payload=factory(broadcaster_user_id=self.channel_user.id), token_for=self.channel_user.id, as_bot=False)
+                    self.tts.connection[name] = True
+                except Exception:
+                    self.tts.connection[name] = False
+                    errors.append(name)
+            self.tts.connection["error"] = f"Could not connect {', '.join(errors)} events. Reconnect your streamer account." if errors else ""
+            if "points" in errors:
+                self.tts.connection["points"] = False
+
+    def _queue_tts_event(self, payload, *, source, text, event_id, bits=0, reward_id=""):
+        if not self.tts or not self.channel_user or str(payload.broadcaster.id) != str(self.channel_user.id):
+            return
+        user = getattr(payload, "user", None)
+        try:
+            self.tts.enqueue(event_key=f"{source}:{event_id}", username=getattr(user, "display_name", None) or getattr(user, "name", None) or "Anonymous",
+                             user_id=str(getattr(user, "id", "") or ""), text=text,
+                             source=source, bits=bits, reward_id=reward_id)
+        except ValueError as exc:
+            self.tts.record_rejection(event_key=f"{source}:{event_id}",
+                                      username=getattr(user, "name", None) or "Anonymous", user_id=str(getattr(user, "id", "") or ""),
+                                      text=text, source=source, bits=bits, reason=exc)
+            print(f"TTS message not queued: {exc}")
+
+    async def event_custom_redemption_add(self, payload) -> None:
+        if payload.status == "canceled":
+            return
+        self._queue_tts_event(payload, source="points", text=payload.user_input,
+                              event_id=payload.id, reward_id=payload.reward.id)
+
+    async def event_bits_use(self, payload) -> None:
+        # Only normal Cheers count toward the minimum-Bits trigger.
+        if payload.type != "cheer":
+            return
+        event_id = getattr(getattr(payload, "metadata", None), "message_id", None)
+        if not event_id:
+            return
+        fragments = getattr(payload, "fragments", None) or []
+        text = "".join(fragment.text for fragment in fragments if fragment.type != "cheermote") if fragments else payload.text
+        self._queue_tts_event(payload, source="bits", text=text, event_id=event_id, bits=payload.bits)
+
+    async def event_custom_redemption_update(self, payload) -> None:
+        if self.tts and self.channel_user and str(payload.broadcaster.id) == str(self.channel_user.id) and payload.status == "canceled":
+            self.tts.cancel_redemption(payload.id)
 
     async def refresh_stream_live(self, *, force: bool = False) -> bool:
         if self.channel_user is None:
@@ -1256,6 +1376,9 @@ class CowBot(commands.Bot):
             if self.channel_user is None:
                 continue
             await self._prune_dead_eventsub_sockets()
+            await self._subscribe_to_tts()
+            if self.tts:
+                self.tts.cleanup_audio()
             if self._has_chat_subscription():
                 await self._drop_extra_chat_subscriptions()
                 self._chat_subscribed = True

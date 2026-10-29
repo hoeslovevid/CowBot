@@ -1,4 +1,4 @@
-twitchio[starlette]>=3.0.0
+twitchio[starlette]>=3.2.2
 python-dotenv>=1.0.0
 Flask>=2.0.0
 requests>=2.31.0

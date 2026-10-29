@@ -1,10 +1,13 @@
 import asyncio
 import os
+import secrets
+import uuid
 from collections.abc import Awaitable, Callable
 
 from aiohttp import web
 
 import store
+from tts import TTSQueue
 
 AnnounceFn = Callable[..., Awaitable[None]]
 StatusFn = Callable[[], dict]
@@ -23,6 +26,9 @@ def create_api_app(
     get_status: StatusFn,
     announce: AnnounceFn,
     apply_tokens: ApplyTokensFn | None = None,
+    tts_queue: TTSQueue | None = None,
+    apply_streamer_tokens: ApplyTokensFn | None = None,
+    fetch_tts_rewards: Callable[[], Awaitable[list]] | None = None,
 ) -> web.Application:
     app = web.Application()
 
@@ -456,6 +462,95 @@ def create_api_app(
             return web.json_response({"ok": True})
         return web.json_response({"ok": False, "error": "Unknown command action."}, status=400)
 
+    async def manage_tts(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        if tts_queue is None:
+            return web.json_response({"ok": False, "error": "TTS is not ready yet."}, status=503)
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Expected a TTS action object.")
+            action = payload.get("action")
+            if action == "settings":
+                tts_queue.save_settings(payload.get("settings", {}))
+            elif action == "test":
+                tts_queue.enqueue(event_key=uuid.uuid4().hex, username="CowBot",
+                                  text=payload.get("text"), source="test", test=True)
+            elif action in {"pause", "resume", "clear", "approve", "reject", "skip", "replay"}:
+                tts_queue.action(action, payload.get("id"))
+            else:
+                raise ValueError("Unknown TTS action.")
+            return web.json_response({"ok": True, "tts": tts_queue.snapshot(), "message": "Speech queued." if action == "test" else "TTS updated."})
+        except (ValueError, TypeError, AttributeError) as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+
+    async def tts_access(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        if not tts_queue:
+            return web.json_response({"ok": False, "error": "TTS is not ready yet."}, status=503)
+        return web.json_response({"ok": True, "key": tts_queue.overlay_key()})
+
+    async def tts_player(request: web.Request) -> web.StreamResponse:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        if not tts_queue:
+            return web.json_response({"ok": False, "error": "TTS is not ready yet."}, status=503)
+        key = request.headers.get("X-TTS-Key", "")
+        if not key or not secrets.compare_digest(key, tts_queue.overlay_key()):
+            return web.json_response({"ok": False, "error": "Invalid TTS player key."}, status=403)
+        kind = request.match_info["operation"]
+        try:
+            if request.method == "GET" and kind == "state":
+                return web.json_response({"ok": True, **tts_queue.player_state(request.query.get("client", ""))})
+            if request.method == "GET" and kind == "audio":
+                path = tts_queue.audio_path(request.query.get("id", ""), request.query.get("client", ""))
+                if path:
+                    return web.FileResponse(path, headers={"Cache-Control": "no-store", "Content-Type": "audio/wav"})
+                return web.json_response({"ok": False, "error": "Audio not available."}, status=404)
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Expected a player action object.")
+            client = str(payload.get("client", ""))
+            if kind == "claim":
+                job = await asyncio.to_thread(tts_queue.claim, client)
+                return web.json_response({"ok": True, "job": job})
+            if kind == "finish":
+                success = tts_queue.finish(payload.get("id"), client, failed=payload.get("failed") is True)
+                return web.json_response({"ok": True, "finished": success})
+            raise ValueError("Unknown player action.")
+        except ValueError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+        except RuntimeError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=503)
+
+    async def streamer_oauth(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        if not apply_streamer_tokens:
+            return web.json_response({"ok": False, "error": "Streamer connection is not ready."}, status=503)
+        payload = await request.json()
+        try:
+            await apply_streamer_tokens(str(payload.get("access_token", "")), str(payload.get("refresh_token", "")))
+            return web.json_response({"ok": True})
+        except Exception:
+            return web.json_response({"ok": False, "error": "Connect the configured streamer account and grant both TTS permissions."}, status=400)
+
+    async def tts_rewards(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        try:
+            rewards = await fetch_tts_rewards() if fetch_tts_rewards else []
+            return web.json_response({"ok": True, "rewards": rewards})
+        except Exception:
+            return web.json_response({"ok": False, "error": "Connect your streamer account to load Channel Point rewards."}, status=400)
+
+    app.router.add_post("/api/tts", manage_tts)
+    app.router.add_get("/api/tts/access", tts_access)
+    app.router.add_get("/api/tts/rewards", tts_rewards)
+    app.router.add_post("/api/tts/oauth", streamer_oauth)
+    app.router.add_route("*", "/api/tts/player/{operation:state|audio|claim|finish}", tts_player)
     app.router.add_get("/health", health)
     app.router.add_get("/api/status", status)
     app.router.add_post("/api/settings", update_settings)

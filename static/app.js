@@ -384,6 +384,7 @@ function applyStatus(status, { commands = false } = {}) {
   renderCustomCommands(status.custom_commands);
   renderScheduled(status.scheduled_messages, Boolean(status.stream_live));
   applyModuleCards(status.features);
+  document.dispatchEvent(new CustomEvent("cowbot:status", { detail: status.tts || null }));
   if (commands || forceCommandRender) {
     renderBuiltinCommands(status.builtin_command_groups);
     forceCommandRender = false;
@@ -413,6 +414,7 @@ function setupTabs() {
     live: ["Stream overview", "Your community, your controls. All in one place.", "Overview"],
     commands: ["Chat commands", "A little personality for every conversation. Make your bot your own.", "Chat commands"],
     settings: ["Bot settings", "Fine-tune your economy, chat messages, and stream integrations.", "Settings"],
+    tts: ["Text to speech", "Give your community a voice. You stay in control of what plays.", "Text to speech"],
   };
   function show(name, focus, { initial = false } = {}) {
     const tab = Object.hasOwn(titles, name) ? name : "live";
@@ -431,6 +433,7 @@ function setupTabs() {
     document.querySelector('[data-page-description]').textContent = titles[tab][1];
     document.querySelector('[data-page-breadcrumb]').textContent = titles[tab][2];
     document.title = `${titles[tab][2]} · CowBot`;
+    document.dispatchEvent(new CustomEvent("cowbot:tab", { detail: tab }));
     try { localStorage.setItem("cowbot-tab", tab); } catch (_error) {}
     closeNav();
     if (!initial) {
@@ -852,6 +855,9 @@ function showOAuthResult() {
   const messages = {
     ok: ["SimpleCowBot is connected. Watch points, pinning, followage, and help whispers can use the new scopes now.", "success"],
     saved: ["Login was saved. If the bot pill still says offline, wait a few seconds and refresh.", "success"],
+    streamer_ok: ["Streamer connected. Open Text to speech to choose your triggers and OBS source.", "success"],
+    streamer_saved: ["Streamer login saved. If events stay disconnected, reconnect once the bot is online.", "success"],
+    streamer_wrong: ["Please authorize your configured streamer account and grant both Bits and Channel Point permissions.", "error"],
     config: ["TWITCH_CLIENT_ID is missing on the dashboard service.", "error"],
     denied: ["Twitch login was cancelled.", "error"],
     bad: ["Twitch login failed. Try Authorize SimpleCowBot again.", "error"],
