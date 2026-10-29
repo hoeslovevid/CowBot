@@ -9,11 +9,16 @@
     html,body{margin:0;background:transparent;font:14px system-ui,sans-serif;color:#eef3ef}
     #player-notice{margin:12px;padding:12px 16px;border:1px solid #45614b;border-radius:8px;background:#18231c;max-width:520px}
     #player-notice:empty{display:none}button{margin:8px 0 0;display:block;padding:8px 12px;border:0;border-radius:5px;background:#b7f5ce;color:#15271c;cursor:pointer}
+    body.browser-player{box-sizing:border-box;min-height:100vh;display:grid;align-content:center;justify-items:center;padding:24px;background:#101312;text-align:center}
+    #browser-player-heading{max-width:520px}#browser-player-heading h1{font-size:26px;letter-spacing:-.7px;margin:0 0 12px}
+    #browser-player-heading p{color:#9da99f;font-size:13px;line-height:1.7;margin:0 0 18px}
+    body.browser-player #player-notice{padding:20px 24px;line-height:1.7}body.browser-player button{margin:14px auto 0;min-height:42px}
   </style>
 </head>
 <body>
+  <header id="browser-player-heading" hidden><h1>CowBot speech player</h1><p>Keep this tab open to hear queued speech. Control messages from Text to speech in your dashboard. Use the OBS source when you want speech on stream.</p></header>
   <div id="player-notice" role="status">Connecting CowBot speech…</div>
   <audio id="speech" preload="auto"></audio>
-  <script src="{{ url_for('static', filename='tts-player.js') }}?v=1"></script>
+  <script src="{{ url_for('static', filename='tts-player.js') }}?v=2"></script>
 </body>
 </html>

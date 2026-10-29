@@ -6,7 +6,7 @@ const { webcrypto } = require('node:crypto');
 const source = fs.readFileSync('static/tts-player.js', 'utf8');
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-function player({ key = 'sample-key', failAcknowledgment = false } = {}) {
+function player({ key = 'sample-key', failAcknowledgment = false, browserMode = false, idle = false } = {}) {
   const backend = { current: null, paused: false, claims: 0, finishes: 0 };
   let ticker;
   const handlers = {};
@@ -19,12 +19,14 @@ function player({ key = 'sample-key', failAcknowledgment = false } = {}) {
     addEventListener(name, listener) { handlers[name] = listener; },
   };
   const notice = { text: '', replaceChildren(value) { this.text = value; }, append() {} };
+  const heading = { hidden: true };
   const context = vm.createContext({
     URLSearchParams, AbortController, crypto: webcrypto, Date,
-    location: { search: key ? `?key=${key}` : '' },
+    location: { search: key ? `?key=${key}${browserMode ? '&view=browser' : ''}` : '' },
     setTimeout, clearTimeout, setInterval(callback) { ticker = callback; },
     document: {
-      getElementById(id) { return id === 'speech' ? audio : notice; },
+      body: { classList: { add() {} } },
+      getElementById(id) { return id === 'speech' ? audio : id === 'browser-player-heading' ? heading : notice; },
       createTextNode(text) { return text; },
       createElement() { return { addEventListener() {} }; },
     },
@@ -34,7 +36,7 @@ function player({ key = 'sample-key', failAcknowledgment = false } = {}) {
       if (operation === 'state') data = { ...data, current_id: backend.current, paused: backend.paused, volume: 35 };
       if (operation === 'claim') {
         backend.claims++;
-        if (backend.claims === 1) {
+        if (backend.claims === 1 && !idle) {
           backend.current = 'a'.repeat(32);
           data.job = { id: backend.current, volume: 35, text: 'Sample speech', duration: 1 };
         } else data.job = null;
@@ -48,7 +50,7 @@ function player({ key = 'sample-key', failAcknowledgment = false } = {}) {
     },
   });
   vm.runInContext(source, context);
-  return { audio, notice, backend, handlers, tick: () => ticker() };
+  return { audio, notice, backend, handlers, heading, tick: () => ticker() };
 }
 
 test('claims speech, plays audio, and acknowledges completion', async () => {
@@ -93,4 +95,21 @@ test('missing player key displays setup instructions', async () => {
   await settle();
   assert.match(app.notice.text, /Copy the complete OBS URL/);
   assert.equal(app.backend.claims, 0);
+});
+
+test('browser player explains idle and paused states instead of showing a blank tab', async () => {
+  const app = player({ browserMode: true, idle: true });
+  await settle();
+  assert.equal(app.heading.hidden, false);
+  assert.match(app.notice.text, /Connected.*Waiting for queued speech/);
+  app.backend.paused = true;
+  await app.tick();
+  assert.match(app.notice.text, /Queue paused/);
+});
+
+test('OBS source stays transparent when idle', async () => {
+  const app = player({ idle: true });
+  await settle();
+  assert.equal(app.heading.hidden, true);
+  assert.equal(app.notice.text, '');
 });

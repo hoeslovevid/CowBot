@@ -255,6 +255,11 @@ button, a.primary { padding: 9px 12px; border-radius: 6px; font-size: 11px; font
 .tts-grid > .stack { gap: 18px; }
 .tts-count { padding: 2px 6px; background: var(--chip); border-radius: 4px; color: var(--muted); font-size: 10px; margin-left: 5px; }
 .tts-queue-actions { margin: 16px 0; }
+.tts-playback-help { display: grid; gap: 11px; margin: 17px 0; padding: 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); }
+.tts-playback-help > p:first-child { color: var(--text); font-size: 12px; line-height: 1.7; }
+.tts-playback-help.needs-player { border-color: var(--focus); }
+.tts-playback-help a { display: inline-flex; justify-self: start; gap: 8px; align-items: center; }
+.tts-playback-help .icon { width: 14px; height: 14px; }
 .tts-message-list { display: grid; gap: 10px; }
 .tts-message-list > .empty-state { padding: 30px 16px; background: var(--input); border: 1px dashed var(--line); border-radius: 8px; }
 .tts-message { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); min-width: 0; }

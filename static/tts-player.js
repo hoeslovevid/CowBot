@@ -1,5 +1,11 @@
 (() => {
-  const key = new URLSearchParams(location.search).get("key");
+  const params = new URLSearchParams(location.search);
+  const key = params.get("key");
+  const browserMode = params.get("view") === "browser";
+  if (browserMode) {
+    document.body.classList.add("browser-player");
+    document.getElementById("browser-player-heading").hidden = false;
+  }
   const audio = document.getElementById("speech");
   const notice = document.getElementById("player-notice");
   const bytes = new Uint8Array(24);
@@ -14,6 +20,11 @@
   let lastContact = Date.now();
 
   function message(text) { notice.replaceChildren(document.createTextNode(text)); }
+  function playbackMessage(paused = false) {
+    if (!browserMode) return "";
+    if (paused) return "Queue paused. Resume it from the CowBot dashboard.";
+    return current ? `Speaking: ${current.username || "CowBot"}` : "Connected. Waiting for queued speech…";
+  }
   async function api(operation, body) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), operation === "claim" ? 50000 : 5000);
@@ -52,7 +63,7 @@
   }
   function enableAudio() {
     blocked = true;
-    message("Audio needs permission in this browser. In OBS, use Control audio via OBS.");
+    message(browserMode ? "Click Enable audio to hear your queued speech." : "Audio needs permission in this browser. In OBS, use Control audio via OBS.");
     const button = document.createElement("button");
     button.textContent = "Enable audio";
     button.addEventListener("click", async () => {
@@ -60,10 +71,10 @@
         const state = await api("state");
         if (!current || state.current_id !== current.id || state.paused) {
           blocked = false;
-          message("");
+          message(playbackMessage(state.paused));
           return;
         }
-        await audio.play(); blocked = false; message("");
+        await audio.play(); blocked = false; message(playbackMessage());
       }
       catch (_error) { message("Could not start audio. Check this browser's audio permissions."); }
     });
@@ -84,7 +95,7 @@
       try {
         await audio.play();
         blocked = false;
-        message("");
+        message(playbackMessage());
       } catch (error) {
         if (error.name === "NotAllowedError") enableAudio();
         else await finish(true);
@@ -119,7 +130,7 @@
           }
         }
       }
-      if (!blocked) message("");
+      if (!blocked) message(playbackMessage(state.paused));
       if (!current && !state.paused) next();
     } catch (error) {
       // Stop audio after losing control connectivity; don't speak through a missed skip.
