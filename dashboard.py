@@ -227,7 +227,7 @@ def finish(success: bool, ok_message: str, error: str | None = None):
 def cache_static(response):
     if request.path.startswith("/static/"):
         name = request.path.rsplit("/", 1)[-1]
-        if name in {"overlay.js", "wheel.js", "styles.css"}:
+        if name in {"overlay.js", "wheel.js", "styles.css", "dashboard.css"}:
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
         else:
             response.headers["Cache-Control"] = "public, max-age=604800, immutable"

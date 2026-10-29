@@ -51,14 +51,24 @@ function setPill(status) {
   pill.className = `pill ${live ? "live" : "down"}`;
   const label = pill.querySelector("span");
   if (label) {
-    label.textContent = live ? "Live on stream" : (status.bot_reachable ? "Connecting" : "Bot offline");
+    label.textContent = live ? "Bot connected" : (status.bot_reachable ? "Connecting" : "Bot offline");
   }
+  document.querySelector(".connection-card")?.setAttribute("data-connected", String(live));
+  setText("connection_label", live ? "Bot connected" : (status.bot_reachable ? "Connecting to Twitch" : "Bot offline"));
 }
 
 function setText(name, value) {
   document.querySelectorAll(`[data-live="${name}"]`).forEach((node) => {
     node.textContent = value;
   });
+}
+
+function iconHtml(name) {
+  return `<svg class="icon" aria-hidden="true"><use href="#icon-${name}"></use></svg>`;
+}
+
+function emptyState(icon, title, description) {
+  return `<div class="empty-state"><span class="empty-symbol">${iconHtml(icon)}</span><strong>${title}</strong><p>${description}</p></div>`;
 }
 
 function giveawayMeta(status) {
@@ -79,12 +89,12 @@ function renderLeaderboard(rows) {
   const board = document.querySelector("[data-live='leaderboard']");
   if (!board) return;
   if (!rows || !rows.length) {
-    board.innerHTML = `<li class="empty">No points yet. Chat can use <code>${escapeHtml(prefix())}daily</code> to start.</li>`;
+    board.innerHTML = `<li class="empty">${emptyState("cup", "Your community starts here", `Chat can use <code>${escapeHtml(prefix())}daily</code> to earn their first points.`)}</li>`;
     return;
   }
   board.innerHTML = rows.map((row, index) => {
     const place = index < 3 ? index + 1 : "rest";
-    return `<li class="place-${place}"><span class="rank">${index + 1}</span><span class="user">${escapeHtml(row.user)}</span><span class="points">${escapeHtml(row.points)}</span></li>`;
+    return `<li class="place-${place}"><span class="rank">${index + 1}</span><span class="user">${escapeHtml(row.user)}</span><span class="points">${escapeHtml(Number(row.points).toLocaleString())} <small>pts</small></span></li>`;
   }).join("");
 }
 
@@ -92,7 +102,7 @@ function renderPoll(status) {
   const box = document.querySelector("[data-live='poll_results']");
   if (!box) return;
   if (!status.active_poll) {
-    box.innerHTML = `<p class="muted">No poll running. Start one below, then chat votes with <code>${escapeHtml(prefix())}poll vote &lt;option&gt;</code>.</p>`;
+    box.innerHTML = emptyState("chart", "Let chat have a say", `Start a poll. Viewers vote with <code>${escapeHtml(prefix())}poll vote &lt;option&gt;</code>.`);
     return;
   }
   const results = status.poll_results || [];
@@ -125,7 +135,7 @@ function renderGiveaway(status) {
       box.innerHTML = `<p class="muted">Giveaway closed. Reroll a specific winner below.</p>${winnerBlock}`;
       return;
     }
-    box.innerHTML = `<p class="muted">No giveaway running. Start one below, then chat joins with <code>${escapeHtml(prefix())}giveaway</code>.</p>`;
+    box.innerHTML = emptyState("gift", "Something good is coming", `Start a giveaway. Chat joins with <code>${escapeHtml(prefix())}giveaway</code>.`);
     return;
   }
   const count = Number(status.giveaway_winner_count || 1);
@@ -157,7 +167,7 @@ function renderQueue(status) {
     const last = status.queue_called
       ? `<p class="muted">Last called ${escapeHtml(status.queue_called)}.</p>`
       : "";
-    box.innerHTML = `<p class="muted">No queue running. Start one below, then chat joins with <code>${escapeHtml(prefix())}queue</code>.</p>${last}`;
+    box.innerHTML = emptyState("users", "Save a spot for your viewers", `Open a queue. Chat joins with <code>${escapeHtml(prefix())}queue</code>.`) + last;
     return;
   }
   const count = Number(status.queue_count || 0);
@@ -339,12 +349,34 @@ function applyStatus(status, { commands = false } = {}) {
   if (winnersInput && status.giveaway_open && status.giveaway_winner_count) {
     winnersInput.value = String(status.giveaway_winner_count);
   }
-  setText("active_poll", status.active_poll || "Idle");
+  setText("active_poll", status.active_poll || "No active poll");
   setText("poll_question", status.poll_question || "No active question");
-  setText("active_raffle", status.active_raffle || "Idle");
+  setText("active_raffle", status.active_raffle || "No active raffle");
   setText("raffle_cost", status.raffle_cost ? `${status.raffle_cost} points to enter` : "Waiting to start");
   setText("active_queue", status.active_queue || "Idle");
   setText("queue_meta", queueMeta(status));
+  setText("giveaway_entry_count", Number(status.giveaway_entry_count || 0).toLocaleString());
+  setText("queue_count", Number(status.queue_count || 0).toLocaleString());
+  const custom = status.custom_commands || [];
+  setText("command_count", custom.length.toLocaleString());
+  setText("command_meta", custom.length ? `${custom.filter((command) => command.enabled).length} enabled for your chat` : "Make your chat feel like home");
+  const modules = Object.values(status.features || {});
+  const moduleCount = document.querySelector('[data-live="module_count"]');
+  if (moduleCount) moduleCount.innerHTML = `${modules.filter((module) => module.enabled).length}<span style="font-size:14px;color:var(--muted)"> / ${modules.length}</span>`;
+  for (const name of ["giveaway", "queue", "poll", "raffle"]) {
+    const badge = document.querySelector(`[data-module-status="${name}"]`);
+    const running = Boolean(status[`active_${name}`]);
+    if (badge) {
+      badge.textContent = name === "giveaway" && status.giveaway_drawing ? "Drawing" : (running ? "Active" : "Inactive");
+      badge.classList.toggle("is-running", running);
+    }
+  }
+  document.querySelectorAll('[data-feature]').forEach((input) => {
+    if (!input.disabled && status.features?.[input.dataset.feature]) input.checked = Boolean(status.features[input.dataset.feature].enabled);
+  });
+  setText("sync_label", status.bot_reachable ? "Updates every 8 seconds" : "Waiting for the bot");
+  const syncDot = document.querySelector('[data-sync-dot]');
+  if (syncDot) syncDot.style.background = status.bot_reachable ? "var(--accent)" : "var(--muted)";
   renderLeaderboard(status.leaderboard);
   renderPoll(status);
   renderGiveaway(status);
@@ -363,29 +395,104 @@ async function refreshStatus(options = {}) {
   refreshInFlight = true;
   try {
     const response = await fetch("/api/status", { headers: JSON_HEADERS, cache: "no-store" });
-    if (!response.ok) return;
+    if (!response.ok) throw new Error("Status unavailable");
     applyStatus(await response.json(), options);
   } catch (_error) {
-    // Keep the last rendered state if the bot or dashboard is briefly unavailable.
+    setText("sync_label", "Connection interrupted · retrying");
+    const syncDot = document.querySelector('[data-sync-dot]');
+    if (syncDot) syncDot.style.background = "var(--barn)";
+  } finally {
+    refreshInFlight = false;
   }
-  refreshInFlight = false;
 }
 
 function setupTabs() {
-  const buttons = [...document.querySelectorAll(".tab")];
+  const buttons = [...document.querySelectorAll("[data-tab]")];
   const panels = [...document.querySelectorAll("[data-panel]")];
-  function show(name) {
-    const tab = name || "live";
-    buttons.forEach((button) => button.classList.toggle("is-active", button.dataset.tab === tab));
+  const titles = {
+    live: ["Stream overview", "Your community, your controls. All in one place.", "Overview"],
+    commands: ["Chat commands", "A little personality for every conversation. Make your bot your own.", "Chat commands"],
+    settings: ["Bot settings", "Fine-tune your economy, chat messages, and stream integrations.", "Settings"],
+  };
+  function show(name, focus, { initial = false } = {}) {
+    const tab = Object.hasOwn(titles, name) ? name : "live";
+    document.querySelectorAll(".side-link").forEach((button) => {
+      const active = button.dataset.tab === tab && (button.dataset.focus || "") === (focus || "");
+      button.classList.toggle("is-active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
     panels.forEach((panel) => {
       const active = panel.dataset.panel === tab;
       panel.hidden = !active;
       panel.classList.toggle("is-active", active);
     });
-    localStorage.setItem("cowbot-tab", tab);
+    document.querySelector('[data-page-title]').textContent = titles[tab][0];
+    document.querySelector('[data-page-description]').textContent = titles[tab][1];
+    document.querySelector('[data-page-breadcrumb]').textContent = titles[tab][2];
+    document.title = `${titles[tab][2]} · CowBot`;
+    try { localStorage.setItem("cowbot-tab", tab); } catch (_error) {}
+    closeNav();
+    if (!initial) {
+      const target = focus ? document.getElementById(focus) : document.querySelector('.page-heading');
+      target?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? "instant" : "smooth", block: "start" });
+      if (focus) {
+        const field = target?.querySelector('input:not([type="hidden"]), textarea, button');
+        if (field && !target.classList.contains("is-off")) field.focus({ preventScroll: true });
+      } else {
+        const heading = document.querySelector('[data-page-title]');
+        heading.setAttribute('tabindex', '-1');
+        heading.focus({ preventScroll: true });
+      }
+    }
   }
-  buttons.forEach((button) => button.addEventListener("click", () => show(button.dataset.tab)));
-  show(localStorage.getItem("cowbot-tab") || "live");
+  function closeNav() {
+    document.body.classList.remove("nav-open");
+    document.querySelector(".nav-backdrop").hidden = true;
+    document.getElementById("nav-toggle")?.setAttribute("aria-expanded", "false");
+    document.getElementById('main-content').inert = false;
+    if (window.matchMedia('(max-width: 700px)').matches) document.getElementById('sidebar').inert = true;
+  }
+  buttons.forEach((button) => button.addEventListener("click", (event) => {
+    event.preventDefault();
+    show(button.dataset.tab, button.dataset.focus);
+  }));
+  document.getElementById("nav-toggle")?.addEventListener("click", () => {
+    const open = !document.body.classList.contains("nav-open");
+    document.body.classList.toggle("nav-open", open);
+    document.querySelector(".nav-backdrop").hidden = !open;
+    document.getElementById("nav-toggle").setAttribute("aria-expanded", String(open));
+    document.getElementById('sidebar').inert = !open;
+    document.getElementById('main-content').inert = open;
+    if (open) document.querySelector('.side-link.is-active, .side-link')?.focus();
+  });
+  document.querySelector(".nav-backdrop")?.addEventListener("click", closeNav);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && document.body.classList.contains("nav-open")) {
+      closeNav();
+      document.getElementById("nav-toggle")?.focus();
+    }
+    if (event.key === "Tab" && document.body.classList.contains("nav-open")) {
+      const items = [...document.querySelectorAll('#sidebar a, #sidebar button')];
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+  });
+  const media = window.matchMedia('(max-width: 700px)');
+  media.addEventListener('change', () => {
+    closeNav();
+    document.getElementById('sidebar').inert = media.matches;
+  });
+  let saved = "live";
+  try { saved = localStorage.getItem("cowbot-tab") || "live"; } catch (_error) {}
+  show(saved, null, { initial: true });
 }
 
 function currentTheme() {
@@ -395,7 +502,7 @@ function currentTheme() {
 function applyTheme(theme) {
   const next = theme === "light" ? "light" : "dark";
   document.documentElement.dataset.theme = next;
-  localStorage.setItem("cowbot-theme", next);
+  try { localStorage.setItem("cowbot-theme", next); } catch (_error) {}
   const toggle = document.getElementById("theme-toggle");
   if (toggle) {
     const toLight = next === "dark";
@@ -403,7 +510,7 @@ function applyTheme(theme) {
     toggle.title = toLight ? "Light mode" : "Dark mode";
   }
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "light" ? "#f4f4f5" : "#09090b";
+  if (meta) meta.content = next === "light" ? "#f3f5f1" : "#101312";
 }
 
 function setupTheme() {
@@ -422,6 +529,11 @@ function setupForms() {
       if (confirmText && !window.confirm(confirmText)) return;
       const body = new FormData(form);
       if (submitter?.name) body.set(submitter.name, submitter.value || "1");
+      if (form.getAttribute("aria-busy") === "true") return;
+      form.setAttribute("aria-busy", "true");
+      const formButtons = [...form.querySelectorAll('button')];
+      const disabledStates = formButtons.map((button) => button.disabled);
+      formButtons.forEach((button) => { button.disabled = true; });
       try {
         const data = await postAction(form.dataset.action, body);
         if (form.id === "custom-command-form") {
@@ -437,6 +549,9 @@ function setupForms() {
         await refreshStatus({ commands: true });
       } catch (error) {
         showToast(error.message || "Could not save.", "error");
+      } finally {
+        form.removeAttribute("aria-busy");
+        formButtons.forEach((button, index) => { button.disabled = disabledStates[index]; });
       }
     });
   });
@@ -762,5 +877,11 @@ setupGiveawayWheel();
 setupQueue();
 setupCopyButtons();
 showOAuthResult();
+try {
+  const initial = document.getElementById("initial-status");
+  if (initial) applyStatus(JSON.parse(initial.textContent));
+} catch (_error) {
+  // The next refresh can recover if the initial snapshot is unavailable.
+}
 refreshStatus();
 setInterval(refreshStatus, 8000);
