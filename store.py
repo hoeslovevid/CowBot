@@ -373,6 +373,26 @@ def grant_points(user_name: str, amount: int) -> tuple[bool, str | None, int]:
     return True, user, change_points(user, amount)
 
 
+def reset_points(scope: str, user_name: str | None = None) -> tuple[bool, str, int]:
+    if not isinstance(scope, str) or scope not in {"user", "all"}:
+        return False, "Choose one viewer or everyone to reset.", 0
+    if scope == "all":
+        with db_session() as conn:
+            cursor = conn.execute("UPDATE points SET points = 0")
+            return True, "everyone", cursor.rowcount
+    user = normalize_user(user_name) if isinstance(user_name, str) else "unknown"
+    if user == "unknown" or not user or len(user) > 25 or not all(
+        char in "abcdefghijklmnopqrstuvwxyz0123456789_" for char in user
+    ):
+        return False, "Enter a valid Twitch username.", 0
+    with db_session() as conn:
+        # Keep the row, including watch time and daily claims. A missing viewer
+        # needs a zero-balance row so get_points won't restore starting points.
+        ensure_user_row(conn, user, 0)
+        conn.execute("UPDATE points SET points = 0 WHERE user = ?", (user,))
+    return True, user, 1
+
+
 def try_spend_points(user_name: str, amount: int) -> tuple[bool, int]:
     user = normalize_user(user_name)
     starting_points = get_dashboard_settings()["starting_points"]
@@ -2224,25 +2244,69 @@ def buy_boost(user_name: str, kind: str) -> tuple[bool, str]:
         return False, f"{meta['label']} is turned off."
     user = normalize_user(user_name)
     starting_points = get_dashboard_settings()["starting_points"]
-    # Calculate and charge against the same balance under the database lock.
+    minutes = boost_minutes(boost_kind)
+    # Charge, extend, and publish together so failed purchases cannot celebrate.
     with db_session() as conn:
         ensure_user_row(conn, user, starting_points)
         balance = conn.execute("SELECT points FROM points WHERE user = ?", (user,)).fetchone()["points"]
         cost = max(1, (balance * price + 99) // 100) if percentage_mode else price
         if balance < cost:
             return False, f"{meta['label']} costs {cost:,} points. You have {balance:,}."
+        now = utc_now()
+        current = None
+        raw_until = get_config_value(conn, f"boost_{boost_kind}_until")
+        if raw_until:
+            try:
+                parsed = parse_iso(raw_until)
+                if parsed > now:
+                    current = parsed
+            except ValueError:
+                pass
+        until = (current or now) + timedelta(minutes=minutes)
         conn.execute("UPDATE points SET points = points - ? WHERE user = ?", (cost, user))
-    now = utc_now()
-    current = boost_until(boost_kind)
-    start = current if current is not None else now
-    until = start + timedelta(minutes=boost_minutes(boost_kind))
-    set_setting(f"boost_{boost_kind}_until", until.isoformat())
-    set_setting(f"boost_{boost_kind}_user", user)
+        upsert_config(conn, f"boost_{boost_kind}_until", until.isoformat())
+        upsert_config(conn, f"boost_{boost_kind}_user", user)
+        events = _boost_events(get_config_value(conn, "boost_celebrations") or "[]", now)
+        events.append({
+            "id": uuid.uuid4().hex, "kind": boost_kind, "label": meta["label"],
+            "user": user, "summary": meta["summary"], "cost": cost,
+            "extended": current is not None, "minutes": minutes,
+            "created_at": now.isoformat(), "until": until.isoformat(),
+        })
+        upsert_config(conn, "boost_celebrations", json.dumps(events[-100:]))
     verb = "extended" if current is not None else "started"
     left = format_watchtime(max(int((until - now).total_seconds()), 0))
     return True, (
         f"{mention_user(user)} {verb} {meta['label']} for {cost:,} points. {left} left. {meta['summary'].capitalize()}."
     )
+
+
+def _boost_events(raw: str, now: datetime) -> list[dict]:
+    try:
+        events = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(events, list):
+        return []
+    fresh = []
+    for event in events:
+        try:
+            if isinstance(event, dict) and event.get("id") and 0 <= (now - parse_iso(event["created_at"])).total_seconds() < 120:
+                fresh.append(event)
+        except (KeyError, ValueError, TypeError):
+            continue
+    return fresh[-100:]
+
+
+def boost_overlay_state() -> dict:
+    now = utc_now()
+    active = []
+    for kind in BOOSTS:
+        boost = active_boost(kind)
+        if boost:
+            active.append({**boost, "until": boost["until"].isoformat(), "summary": BOOSTS[kind]["summary"]})
+    return {"ok": True, "server_time": now.isoformat(), "active": active,
+            "events": _boost_events(get_setting("boost_celebrations", "[]"), now)}
 
 
 def get_watch_seconds(user_name: str) -> int:

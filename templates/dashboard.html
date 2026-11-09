@@ -208,6 +208,20 @@
               <button type="submit" name="action" value="remove" class="ghost">Remove points</button>
             </div>
           </form>
+          <p class="mini-title" style="margin-top:18px">Reset points</p>
+          <p class="field-hint">Set balances to 0. Watch time and daily-claim history are preserved. This cannot be undone.</p>
+          <form id="reset-user-points-form" data-confirm="Reset this viewer's points to 0? This cannot be undone." class="stack js-form" data-action="{{ url_for('reset_points') }}">
+            <input type="hidden" name="scope" value="user">
+            <label>Viewer to reset
+              <input name="points_user" placeholder="viewername" autocomplete="off" maxlength="26" required>
+            </label>
+            <button type="submit" class="ghost" data-confirm="Reset this viewer's points to 0? This cannot be undone.">Reset viewer to 0</button>
+          </form>
+          <form id="reset-all-points-form" data-confirm="Reset EVERY saved viewer balance to 0 points? This cannot be undone. New viewers will still receive the configured starting points." class="stack js-form" style="margin-top:12px" data-action="{{ url_for('reset_points') }}">
+            <input type="hidden" name="scope" value="all">
+            <button type="submit" class="ghost" data-confirm="Reset EVERY saved viewer balance to 0 points? This cannot be undone. New viewers will still receive the configured starting points.">Reset everyone's points to 0</button>
+            <span class="field-hint">Resets all saved balances. Starting points for new viewers stay unchanged.</span>
+          </form>
         </section>
           <section class="card tool-card"><div class="card-title"><span>{{ icon('screen') }}</span><h2 style="font-size:14px">Bring it to the big screen</h2></div><p>Make your next giveaway a moment. Add the spinning wheel to your stream with an OBS browser source.</p><button type="button" class="ghost" data-tab="settings" data-focus="overlay-settings">Set up your overlay{{ icon('arrow') }}</button></section>
           <section class="card"><div class="card-head"><div class="card-title">{{ icon('bolt') }}<h2>Session details</h2></div></div><dl class="session-rows"><div><dt>Bot account</dt><dd data-live="bot_name">{{ status.bot_name }}</dd></div><div><dt>Uptime</dt><dd data-live="uptime">{{ status.uptime }}</dd></div><div><dt>Chat prefix</dt><dd><code data-live="prefix">{{ status.settings.primary_prefix }}</code></dd></div><div><dt>Current poll</dt><dd data-live="active_poll">{{ status.active_poll or 'No active poll' }}</dd></div><div><dt>Current raffle</dt><dd data-live="active_raffle">{{ status.active_raffle or 'No active raffle' }}</dd></div></dl></section>
@@ -460,6 +474,22 @@
           </div>
         </section>
 
+        <section class="card wide" id="boost-overlay-settings">
+          <div class="card-head">
+            <div class="card-title">{{ icon('screen') }}<h2>Boost celebrations</h2></div>
+            <p>Give your boost buyers their moment on stream.</p>
+          </div>
+          <div class="stack">
+            <label>OBS boost browser-source URL<input id="boost-overlay-url" readonly value="{{ boost_overlay_url }}"></label>
+            <div class="actions">
+              <button type="button" class="ghost" data-copy-target="boost-overlay-url">Copy boost OBS URL</button>
+              <a class="ghost" href="{{ url_for('boost_overlay', preview='1') }}" target="_blank" rel="noopener">Preview celebration</a>
+            </div>
+            <p class="muted">Add a Browser Source in OBS, sized <strong>800 × 450</strong>. Keep <strong>Shutdown source when not visible</strong> unchecked. Each purchase or extension gets an eight-second celebration with the buyer's name. Active boosts stay visible below with live countdowns and credit for the latest buyer. The background is transparent; everything hides when no boosts are active.</p>
+            <p class="field-hint">The preview uses sample boosts and never spends points. Keep the OBS source loaded before viewers buy boosts; opening or refreshing it shows active timers without replaying old celebrations.</p>
+          </div>
+        </section>
+
         <section class="card wide" id="overlay-settings">
           <div class="card-head">
             <div class="card-title-row"><div class="card-title">{{ icon('screen') }}<h2>OBS overlay</h2></div></div>
@@ -502,6 +532,6 @@
   <script src="{{ url_for('static', filename='tts-dashboard.js') }}?v=2"></script>
   <script id="initial-status" type="application/json">{{ status | tojson }}</script>
   <script src="{{ url_for('static', filename='wheel.js') }}?v=15"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=26"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=27"></script>
 </body>
 </html>

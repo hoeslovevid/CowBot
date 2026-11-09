@@ -235,7 +235,7 @@ def finish(success: bool, ok_message: str, error: str | None = None):
 def cache_static(response):
     if request.path.startswith("/static/"):
         name = request.path.rsplit("/", 1)[-1]
-        if name in {"overlay.js", "wheel.js", "styles.css", "dashboard.css", "tts-dashboard.js", "tts-player.js"}:
+        if name in {"overlay.js", "wheel.js", "styles.css", "dashboard.css", "tts-dashboard.js", "tts-player.js", "boost-overlay.js", "boost-overlay.css"}:
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
         else:
             response.headers["Cache-Control"] = "public, max-age=604800, immutable"
@@ -260,6 +260,7 @@ def dashboard():
         "dashboard.html",
         status=fetch_status(),
         overlay_url=overlay_page_url(),
+        boost_overlay_url=f"{public_origin()}{url_for('boost_overlay')}",
         oauth_redirect_url=oauth_callback_url(),
     )
 
@@ -599,6 +600,20 @@ def manage_points():
     return finish(False, "Could not update points.", result.get("error") if isinstance(result, dict) else None)
 
 
+@app.route("/points/reset", methods=["POST"])
+def reset_points():
+    data = posted()
+    success, result = post_bot_data("/api/points/reset", {
+        "scope": data.get("scope"),
+        "user": data.get("points_user"),
+    })
+    if not success:
+        return finish(False, "Could not reset points.", result.get("error"))
+    if result.get("scope") == "all":
+        return finish(True, f"Reset {result.get('count', 0)} saved balances to 0 points.")
+    return finish(True, f"Reset {result.get('user', 'that viewer')} to 0 points.")
+
+
 @app.route("/giveaway/draw", methods=["POST"])
 def draw_giveaway():
     data = posted()
@@ -623,6 +638,28 @@ def reroll_giveaway():
         "replace": data.get("replace"),
     })
     return jsonify(result), 200 if success else 400
+
+
+@app.route("/overlay/boosts")
+def boost_overlay():
+    response = make_response(render_template("boost_overlay.html"))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/overlay/boosts/state")
+def boost_overlay_state():
+    try:
+        response = requests.get(f"{BOT_API_URL}/api/boosts/overlay", headers=bot_headers(), timeout=3)
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict) or not data.get("ok"):
+            raise ValueError("Invalid boost state")
+        body = jsonify(data)
+        body.headers["Cache-Control"] = "no-store"
+        return body
+    except (requests.RequestException, ValueError):
+        return jsonify({"ok": False}), 503, {"Cache-Control": "no-store"}
 
 
 @app.route("/overlay/giveaway")

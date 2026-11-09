@@ -75,6 +75,18 @@ Prefixes are set in the dashboard. Defaults are `?` (and whatever you add, such 
 - `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`, `?ping`
 - Custom commands added from the dashboard, such as `?discord`
 
+## Reset points
+
+On **Live**, below the leaderboard, use **Reset viewer to 0** to clear one viewer's balance, or **Reset everyone's points to 0** to clear all saved balances. Both actions ask for confirmation and cannot be undone. Watch time, daily-claim history, and watch-reward cooldowns are preserved. New viewers still receive the configured starting points, and existing viewers can earn points again normally.
+
+## Boost celebrations
+
+In **Settings → Boost celebrations**, copy the boost browser-source URL into a new OBS **Browser Source**, sized **800 × 450**. Keep **Shutdown source when not visible** unchecked. The source has a transparent background.
+
+Each successful `?boost watch` or `?boost luck` purchase gets an eight-second animated celebration with the buyer's name, boost effect, point cost, and added duration. Extensions celebrate too, and purchases made close together play in order. Beneath the celebration, both active boosts have live countdowns and credit for their latest buyer. Everything hides when boosts expire.
+
+Use **Preview celebration** to see sample boosts without spending points. Load the OBS source before purchases: opening or refreshing the source restores active timers without replaying old celebrations. Recent events survive a bot restart for up to two minutes; older announcements are discarded. This overlay is visual only and does not play sound.
+
 ## Text to speech
 
 CowBot generates speech on the bot host and plays it through a dedicated OBS browser source. It does not send viewer text to an external speech provider and does not need a TTS API key. Docker/Railway uses **eSpeak NG** (included in the image); local Windows runs use the installed **Windows speech** voices. For Linux without Docker, install `espeak-ng` before starting the bot. The initial voices are basic system voices.

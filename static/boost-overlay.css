@@ -1,0 +1,29 @@
+:root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; color: #f4fff8; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: transparent; overflow: hidden; }
+main { width: 100%; max-width: 800px; padding: 28px; }
+#celebration { position: relative; margin-bottom: 20px; padding: 10px; animation: arrive .6s cubic-bezier(.2,.8,.2,1) both; }
+.celebration-card { position: relative; text-align: center; padding: 22px 28px 24px; border: 1px solid #9ff5bc; border-radius: 24px; background: radial-gradient(ellipse at top, #315f48, #132a20 75%); box-shadow: 0 8px 28px #0006, inset 0 0 32px #9ff5bc0c; }
+.badge { width: 62px; height: 62px; display: grid; place-items: center; margin: 0 auto 12px; border-radius: 19px; background: #b7f5ce; color: #163725; font-weight: 900; font-size: 29px; transform: rotate(-8deg); }
+.eyebrow { margin: 0; color: #b7f5ce; text-transform: uppercase; font-weight: 700; font-size: 12px; letter-spacing: 2px; }
+h1 { margin: 6px 0 8px; font-size: clamp(22px, 5vw, 40px); line-height: 1.15; overflow-wrap: anywhere; letter-spacing: -1px; }
+.effect { font-size: 19px; line-height: 1.3; margin: 0; }
+.detail { margin: 12px 0 0; color: #bdcfc3; font-size: 13px; }
+.sparkles { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.sparkles i { position: absolute; color: #d5ffc1; font-size: 30px; font-style: normal; animation: sparkle 2s ease-in-out infinite alternate; }
+.sparkles i:nth-child(1) { left: 4%; top: 15%; }
+.sparkles i:nth-child(2) { right: 4%; top: 22%; animation-delay: .3s; }
+.sparkles i:nth-child(3) { left: 10%; bottom: 6%; animation-delay: .7s; }
+.sparkles i:nth-child(4) { right: 13%; bottom: 2%; animation-delay: .4s; }
+.sparkles i:nth-child(5) { right: 25%; top: -6%; animation-delay: .8s; }
+.sparkles i:nth-child(6) { left: 23%; top: -4%; animation-delay: .2s; }
+#active-boosts { display: flex; gap: 12px; }
+.active-boost { min-width: 0; flex: 1; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 14px 18px; border: 1px solid #608d70; border-radius: 14px; background: #132a20f5; box-shadow: 0 4px 16px #0004; }
+.active-boost strong { font-size: 15px; }
+.active-boost span { grid-column: 1; color: #bdcfc3; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.active-boost time { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; color: #b7f5ce; }
+@keyframes arrive { from { opacity: 0; transform: translateY(18px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes sparkle { from { opacity: .35; transform: scale(.65) rotate(-12deg); } to { opacity: 1; transform: scale(1.1) rotate(12deg); } }
+@media (prefers-reduced-motion: reduce) { #celebration, .sparkles i { animation: none; } }
+@media (max-width: 500px) { main { padding: 16px; } .celebration-card { padding: 18px 12px; } .active-boost { padding: 10px; gap: 4px; } .active-boost time { font-size: 18px; } .active-boost strong { font-size: 12px; } }

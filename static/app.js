@@ -541,7 +541,7 @@ function setupForms() {
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const submitter = event.submitter;
-      const confirmText = submitter?.dataset.confirm;
+      const confirmText = submitter?.dataset.confirm || form.dataset.confirm;
       if (confirmText && !window.confirm(confirmText)) return;
       const body = new FormData(form);
       if (submitter?.name) body.set(submitter.name, submitter.value || "1");

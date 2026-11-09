@@ -352,6 +352,11 @@ def create_api_app(
             return unauthorized
         return web.json_response({"ok": True, "spin": store.get_overlay_spin()})
 
+    async def boost_overlay(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        return web.json_response(store.boost_overlay_state(), headers={"Cache-Control": "no-store"})
+
     async def manage_points(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
@@ -381,6 +386,20 @@ def create_api_app(
         else:
             await announce(f"{store.mention_user(user)} lost {abs(amount)} points. Total: {total}.")
         return web.json_response({"ok": True, "user": user, "amount": amount, "total": total})
+
+    async def reset_points(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        if disabled := require_feature("economy"):
+            return disabled
+        payload = await request.json()
+        scope = payload.get("scope")
+        if not isinstance(scope, str) or scope not in {"user", "all"}:
+            return web.json_response({"ok": False, "error": "Choose one viewer or everyone to reset."}, status=400)
+        ok, result, count = store.reset_points(scope, payload.get("user"))
+        if not ok:
+            return web.json_response({"ok": False, "error": result}, status=400)
+        return web.json_response({"ok": True, "scope": scope, "user": result, "count": count, "total": 0})
 
     async def manage_quote(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
@@ -576,7 +595,9 @@ def create_api_app(
     app.router.add_post("/api/queue", manage_queue)
     app.router.add_post("/api/giveaway", manage_giveaway)
     app.router.add_get("/api/giveaway/overlay", giveaway_overlay)
+    app.router.add_get("/api/boosts/overlay", boost_overlay)
     app.router.add_post("/api/points", manage_points)
+    app.router.add_post("/api/points/reset", reset_points)
     app.router.add_post("/api/quote", manage_quote)
     app.router.add_post("/api/schedule", manage_schedule)
     app.router.add_post("/api/commands", manage_commands)

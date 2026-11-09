@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -67,6 +68,64 @@ class BoostTests(unittest.TestCase):
         self.assertIn("50% of your current points", store.boost_overview())
         store.set_setting("boost_luck_cost_mode", "flat")
         self.assertIn("1,000 points", store.boost_overview())
+
+    def test_celebrations_capture_purchases_and_extensions(self):
+        self.assertTrue(store.buy_boost("viewer", "watch")[0])
+        self.assertTrue(store.buy_boost("other", "watch")[0])
+        state = store.boost_overlay_state()
+        self.assertEqual(len(state["events"]), 2)
+        first, second = state["events"]
+        self.assertFalse(first["extended"])
+        self.assertTrue(second["extended"])
+        self.assertNotEqual(first["id"], second["id"])
+        self.assertEqual(first["cost"], 50)
+        self.assertEqual(state["active"][0]["user"], "other")
+        json.dumps(state)  # The HTTP payload must contain serializable timestamps.
+        store.change_points("broke", -100)
+        self.assertFalse(store.buy_boost("broke", "luck")[0])
+        self.assertEqual(len(store.boost_overlay_state()["events"]), 2)
+        with patch.object(store, "utc_now", return_value=store.utc_now() + timedelta(seconds=121)):
+            self.assertEqual(store.boost_overlay_state()["events"], [])
+            self.assertEqual(len(store.boost_overlay_state()["active"]), 1)
+        with patch.object(store, "utc_now", return_value=store.utc_now() + timedelta(hours=1)):
+            self.assertEqual(store.boost_overlay_state()["active"], [])
+
+    def test_purchase_rolls_back_if_celebration_cannot_be_saved(self):
+        original = store.upsert_config
+
+        def fail_event(conn, key, value):
+            if key == "boost_celebrations":
+                raise RuntimeError("Database write failed")
+            original(conn, key, value)
+
+        with patch.object(store, "upsert_config", side_effect=fail_event):
+            with self.assertRaises(RuntimeError):
+                store.buy_boost("viewer", "watch")
+        self.assertEqual(store.get_points("viewer"), 100)
+        self.assertFalse(store.is_boost_active("watch"))
+        self.assertEqual(store.boost_overlay_state()["events"], [])
+
+    def test_boost_overlay_routes_and_proxy_failure(self):
+        client = dashboard.app.test_client()
+        self.assertEqual(client.get("/overlay/boosts?preview=1").status_code, 200)
+        with patch.object(dashboard.requests, "get", return_value=SimpleNamespace(
+                raise_for_status=lambda: None, json=store.boost_overlay_state)):
+            response = client.get("/overlay/boosts/state")
+            self.assertTrue(response.json["ok"])
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+        with patch.object(dashboard.requests, "get", side_effect=dashboard.requests.ConnectionError):
+            self.assertEqual(client.get("/overlay/boosts/state").status_code, 503)
+        app = create_api_app(get_status=lambda: {}, announce=AsyncMock())
+        route = next(r for r in app.router.routes() if r.resource.canonical == "/api/boosts/overlay")
+        with patch.dict(os.environ, {"API_SECRET": "private"}):
+            for headers, expected in (({}, 401), ({"X-API-Secret": "private"}, 200)):
+                coroutine = route.handler(SimpleNamespace(headers=headers))
+                try:
+                    coroutine.send(None)
+                except StopIteration as done:
+                    self.assertEqual(done.value.status, expected)
+                finally:
+                    coroutine.close()
 
     def settings_request(self, payload):
         app = create_api_app(get_status=lambda: {}, announce=AsyncMock())
