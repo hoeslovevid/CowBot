@@ -75,6 +75,12 @@ Prefixes are set in the dashboard. Defaults are `?` (and whatever you add, such 
 - `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`, `?ping`
 - Custom commands added from the dashboard, such as `?discord`
 
+## Give and remove points
+
+On **Live**, below the leaderboard, **Adjust one viewer** lets you enter a username and an amount, then choose **Give points** or **Remove points**. Removing stops at zero; the result reports the amount actually removed.
+
+Use **Give points to multiple viewers** to award the same amount to up to 100 viewers at once. Separate usernames with commas, spaces, or new lines. Names are case-insensitive, optional `@` prefixes are accepted, and duplicates receive points once. The entire list is validated before any balance changes. Each viewer receives the full entered amount (1 to 1,000,000 points).
+
 ## Reset points
 
 On **Live**, below the leaderboard, use **Reset viewer to 0** to clear one viewer's balance, or **Reset everyone's points to 0** to clear all saved balances. Both actions ask for confirmation and cannot be undone. Watch time, daily-claim history, and watch-reward cooldowns are preserved. New viewers still receive the configured starting points, and existing viewers can earn points again normally.

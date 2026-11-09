@@ -600,6 +600,18 @@ def manage_points():
     return finish(False, "Could not update points.", result.get("error") if isinstance(result, dict) else None)
 
 
+@app.route("/points/bulk", methods=["POST"])
+def bulk_points():
+    data = posted()
+    success, result = post_bot_data("/api/points/bulk", {
+        "users": data.get("points_users"),
+        "amount": data.get("points_amount"),
+    })
+    if not success:
+        return finish(False, "Could not give points.", result.get("error"))
+    return finish(True, f"Gave {result['amount']:,} points each to {result['count']} viewers.")
+
+
 @app.route("/points/reset", methods=["POST"])
 def reset_points():
     data = posted()

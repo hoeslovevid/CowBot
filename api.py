@@ -374,18 +374,32 @@ def create_api_app(
             amount = -amount
         elif action not in {"add", "give"}:
             return web.json_response({"ok": False, "error": "Unknown points action."}, status=400)
-        ok, result, total = store.grant_points(
-            payload.get("user") or payload.get("points_user"),
-            amount,
+        ok, error, results = store.adjust_points(
+            [payload.get("user") or payload.get("points_user")], amount,
         )
         if not ok:
-            return web.json_response({"ok": False, "error": result}, status=400)
-        user = result
+            return web.json_response({"ok": False, "error": error}, status=400)
+        user, total, amount = results[0]["user"], results[0]["total"], results[0]["amount"]
         if amount > 0:
             await announce(f"{store.mention_user(user)} gained {amount} points. Total: {total}.")
         else:
             await announce(f"{store.mention_user(user)} lost {abs(amount)} points. Total: {total}.")
         return web.json_response({"ok": True, "user": user, "amount": amount, "total": total})
+
+    async def bulk_points(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        if disabled := require_feature("economy"):
+            return disabled
+        payload = await request.json()
+        amount = store.parse_non_negative_int(str(payload.get("amount", "")), 0)
+        if amount <= 0:
+            return web.json_response({"ok": False, "error": "Enter a points amount of 1 or more."}, status=400)
+        ok, error, results = store.adjust_points(payload.get("users"), amount)
+        if not ok:
+            return web.json_response({"ok": False, "error": error}, status=400)
+        await announce(f"Gave {amount:,} points each to {len(results)} viewers.")
+        return web.json_response({"ok": True, "amount": amount, "count": len(results), "users": results})
 
     async def reset_points(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
@@ -598,6 +612,7 @@ def create_api_app(
     app.router.add_get("/api/boosts/overlay", boost_overlay)
     app.router.add_post("/api/points", manage_points)
     app.router.add_post("/api/points/reset", reset_points)
+    app.router.add_post("/api/points/bulk", bulk_points)
     app.router.add_post("/api/quote", manage_quote)
     app.router.add_post("/api/schedule", manage_schedule)
     app.router.add_post("/api/commands", manage_commands)

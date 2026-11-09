@@ -362,15 +362,42 @@ def change_points(user_name: str, amount: int) -> int:
         return row["points"]
 
 
+def adjust_points(user_names: str | list[str], amount: int) -> tuple[bool, str | None, list[dict]]:
+    if not isinstance(amount, int) or isinstance(amount, bool) or amount == 0 or abs(amount) > MAX_POINT_ADJUST:
+        return False, "Enter a whole points amount from 1 to 1,000,000.", []
+    if isinstance(user_names, str):
+        user_names = user_names.replace(",", " ").split()
+    if not isinstance(user_names, list) or not user_names:
+        return False, "Enter at least one Twitch username.", []
+    users = []
+    for name in user_names:
+        user = normalize_user(name) if isinstance(name, str) else ""
+        if not user or user == "unknown" or len(user) > 25 or not all(
+            char in "abcdefghijklmnopqrstuvwxyz0123456789_" for char in user
+        ):
+            return False, "Enter valid Twitch usernames, separated by commas, spaces, or new lines.", []
+        if user not in users:
+            users.append(user)
+    if len(users) > 100:
+        return False, "Adjust up to 100 viewers at a time.", []
+    starting_points = get_dashboard_settings()["starting_points"]
+    results = []
+    # Validate the entire list first, then apply every adjustment atomically.
+    with db_session() as conn:
+        for user in users:
+            ensure_user_row(conn, user, starting_points)
+            before = conn.execute("SELECT points FROM points WHERE user = ?", (user,)).fetchone()["points"]
+            total = max(before + amount, 0)
+            conn.execute("UPDATE points SET points = ? WHERE user = ?", (total, user))
+            results.append({"user": user, "amount": total - before, "total": total})
+    return True, None, results
+
+
 def grant_points(user_name: str, amount: int) -> tuple[bool, str | None, int]:
-    user = normalize_user(user_name)
-    if not user or user == "unknown":
-        return False, "Enter a Twitch username.", 0
-    if amount == 0:
-        return False, "Amount cannot be zero.", 0
-    if abs(amount) > MAX_POINT_ADJUST:
-        return False, "Amount must be 1,000,000 or less.", 0
-    return True, user, change_points(user, amount)
+    ok, error, results = adjust_points([user_name], amount)
+    if not ok:
+        return False, error, 0
+    return True, results[0]["user"], results[0]["total"]
 
 
 def reset_points(scope: str, user_name: str | None = None) -> tuple[bool, str, int]:

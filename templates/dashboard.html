@@ -193,20 +193,33 @@
             <p>Top chatters by points</p>
           </div>
           <ol class="board" data-live="leaderboard"></ol>
-          <p class="mini-title" style="margin-top:18px">Give a little back</p>
+          <p class="mini-title" style="margin-top:18px">Adjust one viewer</p>
           <form id="give-points-form" class="stack js-form" data-action="{{ url_for('manage_points') }}">
             <div class="form-grid">
               <label>Username
-                <input name="points_user" placeholder="viewername" autocomplete="off">
+                <input name="points_user" placeholder="viewername" autocomplete="off" maxlength="26" required>
               </label>
-              <label>Amount
-                <input name="points_amount" type="number" min="1" max="1000000" value="100">
+              <label>Points to give or remove
+                <input name="points_amount" type="number" min="1" max="1000000" step="1" value="100" required>
               </label>
             </div>
             <div class="actions">
               <button type="submit" name="action" value="add" class="primary">Give points</button>
               <button type="submit" name="action" value="remove" class="ghost">Remove points</button>
             </div>
+          </form>
+          <p class="field-hint">Enter a username and amount, then choose Give points or Remove points. Removing stops at 0 and reports the amount actually removed.</p>
+          <p class="mini-title" style="margin-top:18px">Give points to multiple viewers</p>
+          <form id="bulk-points-form" class="stack js-form" data-action="{{ url_for('bulk_points') }}">
+            <label>Viewer usernames
+              <textarea name="points_users" rows="3" maxlength="10000" placeholder="viewerone, viewertwo, viewerthree" required></textarea>
+              <span class="field-hint">Separate names with commas, spaces, or new lines. Up to 100 viewers; repeated names receive points once.</span>
+            </label>
+            <label>Points per viewer
+              <input name="points_amount" type="number" min="1" max="1000000" step="1" value="100" required>
+              <span class="field-hint">Each listed viewer receives this full amount.</span>
+            </label>
+            <button type="submit" class="primary">Give points to listed viewers</button>
           </form>
           <p class="mini-title" style="margin-top:18px">Reset points</p>
           <p class="field-hint">Set balances to 0. Watch time and daily-claim history are preserved. This cannot be undone.</p>
@@ -532,6 +545,6 @@
   <script src="{{ url_for('static', filename='tts-dashboard.js') }}?v=2"></script>
   <script id="initial-status" type="application/json">{{ status | tojson }}</script>
   <script src="{{ url_for('static', filename='wheel.js') }}?v=15"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=27"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=28"></script>
 </body>
 </html>
