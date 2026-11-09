@@ -523,6 +523,19 @@ function setupTheme() {
   });
 }
 
+function setupBoostPricing() {
+  document.querySelectorAll("[data-boost-pricing]").forEach((group) => {
+    const toggle = group.querySelector("[data-boost-percentage-toggle]");
+    const sync = () => {
+      group.querySelector('input[type="hidden"]').value = toggle.checked ? "percentage" : "flat";
+      group.querySelector("[data-boost-percentage-field]").hidden = !toggle.checked;
+      group.querySelector("[data-boost-flat-field]").hidden = toggle.checked;
+    };
+    toggle.addEventListener("change", sync);
+    sync();
+  });
+}
+
 function setupForms() {
   document.querySelectorAll(".js-form").forEach((form) => {
     form.addEventListener("submit", async (event) => {
@@ -542,7 +555,7 @@ function setupForms() {
         if (form.id === "custom-command-form") {
           resetCommandForm();
         } else if (form.id !== "give-points-form" && (submitter?.value === "create" || submitter?.classList.contains("primary"))) {
-          form.querySelectorAll("input:not([type='hidden']):not([type='number']), textarea").forEach((field) => {
+          form.querySelectorAll("input:not([type='hidden']):not([type='number']):not([type='checkbox']), textarea").forEach((field) => {
             if (!field.readOnly && field.name !== "lurk_message" && field.name !== "unlurk_message" && !["daily_min", "daily_max", "starting_points", "default_raffle_cost", "watchtime_points", "watchtime_minutes", "boost_watch_cost", "boost_watch_minutes", "boost_luck_cost", "boost_luck_minutes", "prefixes", "interval_minutes"].includes(field.name)) {
               field.value = "";
             }
@@ -875,6 +888,7 @@ function showOAuthResult() {
 
 setupTabs();
 setupTheme();
+setupBoostPricing();
 setupForms();
 setupInstantToggles();
 setupCommandEditor();

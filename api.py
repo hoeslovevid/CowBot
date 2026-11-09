@@ -66,10 +66,24 @@ def create_api_app(
         boost_luck_cost = store.parse_non_negative_int(str(payload.get("boost_luck_cost", "")), 1000)
         boost_watch_minutes = store.parse_boost_minutes(payload.get("boost_watch_minutes"), 15)
         boost_luck_minutes = store.parse_boost_minutes(payload.get("boost_luck_minutes"), 15)
+        boost_pricing = {}
+        for kind in store.BOOSTS:
+            mode_key = f"boost_{kind}_cost_mode"
+            percentage_key = f"boost_{kind}_percentage"
+            mode = payload.get(mode_key, store.boost_cost_mode(kind))
+            raw_percentage = str(payload.get(percentage_key, store.boost_percentage(kind)))
+            if not isinstance(mode, str) or mode not in {"percentage", "flat"}:
+                return web.json_response({"ok": False, "error": "Choose percentage or flat boost pricing."}, status=400)
+            if not raw_percentage.isascii() or not raw_percentage.isdigit() or len(raw_percentage) > 3 or not 0 <= int(raw_percentage) <= 100:
+                return web.json_response({"ok": False, "error": "Boost percentage must be a whole number from 0 to 100."}, status=400)
+            boost_pricing[mode_key] = mode
+            boost_pricing[percentage_key] = str(int(raw_percentage))
         if "prefixes" in payload:
             success, error = store.set_command_prefixes(str(payload.get("prefixes") or ""))
             if not success:
                 return web.json_response({"ok": False, "error": error}, status=400)
+        for key, value in boost_pricing.items():
+            store.set_setting(key, value)
         store.set_setting("daily_min", str(daily_min))
         store.set_setting("daily_max", str(daily_max))
         store.set_setting("starting_points", str(starting_points))

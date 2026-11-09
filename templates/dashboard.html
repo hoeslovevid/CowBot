@@ -363,17 +363,39 @@
               <input name="watchtime_minutes" type="number" min="1" max="60" value="{{ status.settings.watchtime_minutes }}">
               <span class="field-hint">How often those points are granted.</span>
             </label>
-            <label>Watch boost cost
-              <input name="boost_watch_cost" type="number" min="0" value="{{ status.settings.boost_watch_cost }}">
-              <span class="field-hint">Price of !boost watch. 0 turns it off.</span>
-            </label>
+            <div class="span-2 stack" data-boost-pricing="watch">
+              <label class="module-toggle">
+                <input type="checkbox" data-boost-percentage-toggle {% if status.settings.boost_watch_cost_mode != 'flat' %}checked{% endif %}>
+                <span><strong>Watch boost: percentage pricing</strong><em>Turn off to use a flat point price.</em></span>
+              </label>
+              <input type="hidden" name="boost_watch_cost_mode" value="{{ status.settings.boost_watch_cost_mode }}">
+              <label data-boost-percentage-field {% if status.settings.boost_watch_cost_mode == 'flat' %}hidden{% endif %}>Watch boost percentage
+                <input name="boost_watch_percentage" type="number" min="0" max="100" step="1" required value="{{ status.settings.boost_watch_percentage }}">
+                <span class="field-hint">Percent of the buyer's current points, rounded up. 0 turns this boost off.</span>
+              </label>
+              <label data-boost-flat-field {% if status.settings.boost_watch_cost_mode != 'flat' %}hidden{% endif %}>Watch boost flat cost
+                <input name="boost_watch_cost" type="number" min="0" step="1" required value="{{ status.settings.boost_watch_cost }}">
+                <span class="field-hint">Point price of !boost watch. 0 turns this boost off.</span>
+              </label>
+            </div>
             <label>Watch boost minutes
               <input name="boost_watch_minutes" type="number" min="1" max="120" value="{{ status.settings.boost_watch_minutes }}">
             </label>
-            <label>Luck boost cost
-              <input name="boost_luck_cost" type="number" min="0" value="{{ status.settings.boost_luck_cost }}">
-              <span class="field-hint">Price of !boost luck. Doubles gamble, slots, and roulette winnings. 0 turns it off.</span>
-            </label>
+            <div class="span-2 stack" data-boost-pricing="luck">
+              <label class="module-toggle">
+                <input type="checkbox" data-boost-percentage-toggle {% if status.settings.boost_luck_cost_mode != 'flat' %}checked{% endif %}>
+                <span><strong>Luck boost: percentage pricing</strong><em>Turn off to use a flat point price.</em></span>
+              </label>
+              <input type="hidden" name="boost_luck_cost_mode" value="{{ status.settings.boost_luck_cost_mode }}">
+              <label data-boost-percentage-field {% if status.settings.boost_luck_cost_mode == 'flat' %}hidden{% endif %}>Luck boost percentage
+                <input name="boost_luck_percentage" type="number" min="0" max="100" step="1" required value="{{ status.settings.boost_luck_percentage }}">
+                <span class="field-hint">Percent of the buyer's current points, rounded up. 0 turns this boost off.</span>
+              </label>
+              <label data-boost-flat-field {% if status.settings.boost_luck_cost_mode != 'flat' %}hidden{% endif %}>Luck boost flat cost
+                <input name="boost_luck_cost" type="number" min="0" step="1" required value="{{ status.settings.boost_luck_cost }}">
+                <span class="field-hint">Point price of !boost luck. 0 turns this boost off.</span>
+              </label>
+            </div>
             <label>Luck boost minutes
               <input name="boost_luck_minutes" type="number" min="1" max="120" value="{{ status.settings.boost_luck_minutes }}">
             </label>

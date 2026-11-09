@@ -66,6 +66,7 @@ If you still have a second Railway service from the old split setup, you can del
 Prefixes are set in the dashboard. Defaults are `?` (and whatever you add, such as `!`). `/` will not work; Twitch keeps that for its own commands.
 
 - `?points` / `?points <user>`
+- `?boost watch` / `?boost luck`: buy or extend a boost for everyone. Defaults to 50% of the buyer's current points, rounded up to a whole point (minimum 1). In **Settings → Economy**, change each boost's percentage or turn off its percentage toggle to set a flat point price. A price of 0 disables that boost in the selected mode.
 - `?daily`
 - `?gamble <amount|all>`
 - `?roulette <amount>`

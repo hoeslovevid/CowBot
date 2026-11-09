@@ -2135,6 +2135,15 @@ def boost_cost(kind: str) -> int:
     return parse_non_negative_int(get_setting(f"boost_{kind}_cost", str(meta["cost_default"])), meta["cost_default"])
 
 
+def boost_cost_mode(kind: str) -> str:
+    mode = get_setting(f"boost_{kind}_cost_mode", "percentage")
+    return mode if mode in {"percentage", "flat"} else "percentage"
+
+
+def boost_percentage(kind: str) -> int:
+    return min(parse_non_negative_int(get_setting(f"boost_{kind}_percentage", "50"), 50), 100)
+
+
 def boost_minutes(kind: str) -> int:
     meta = BOOSTS[kind]
     return parse_boost_minutes(get_setting(f"boost_{kind}_minutes", str(meta["minutes_default"])), meta["minutes_default"])
@@ -2191,10 +2200,12 @@ def boost_overview() -> str:
                 f"{active['label']} by {mention_user(active['user'])} · {format_watchtime(active['seconds'])} left"
             )
             continue
-        cost = boost_cost(kind)
-        if cost < 1:
+        percentage_mode = boost_cost_mode(kind) == "percentage"
+        price = boost_percentage(kind) if percentage_mode else boost_cost(kind)
+        if price < 1:
             continue
-        parts.append(f"{prefix}boost {kind} ({cost:,}) {meta['summary']}")
+        label = f"{price}% of your current points" if percentage_mode else f"{price:,} points"
+        parts.append(f"{prefix}boost {kind} ({label}) {meta['summary']}")
     if not parts:
         return "No boosts are available right now."
     if not any(is_boost_active(kind) for kind in BOOSTS):
@@ -2207,13 +2218,20 @@ def buy_boost(user_name: str, kind: str) -> tuple[bool, str]:
     meta = BOOSTS.get(boost_kind)
     if meta is None:
         return False, f"Usage: {primary_prefix()}boost <watch|luck>"
-    cost = boost_cost(boost_kind)
-    if cost < 1:
+    percentage_mode = boost_cost_mode(boost_kind) == "percentage"
+    price = boost_percentage(boost_kind) if percentage_mode else boost_cost(boost_kind)
+    if price < 1:
         return False, f"{meta['label']} is turned off."
     user = normalize_user(user_name)
-    spent, remaining = try_spend_points(user, cost)
-    if not spent:
-        return False, f"{meta['label']} costs {cost:,} points. You have {remaining:,}."
+    starting_points = get_dashboard_settings()["starting_points"]
+    # Calculate and charge against the same balance under the database lock.
+    with db_session() as conn:
+        ensure_user_row(conn, user, starting_points)
+        balance = conn.execute("SELECT points FROM points WHERE user = ?", (user,)).fetchone()["points"]
+        cost = max(1, (balance * price + 99) // 100) if percentage_mode else price
+        if balance < cost:
+            return False, f"{meta['label']} costs {cost:,} points. You have {balance:,}."
+        conn.execute("UPDATE points SET points = points - ? WHERE user = ?", (cost, user))
     now = utc_now()
     current = boost_until(boost_kind)
     start = current if current is not None else now
@@ -2223,7 +2241,7 @@ def buy_boost(user_name: str, kind: str) -> tuple[bool, str]:
     verb = "extended" if current is not None else "started"
     left = format_watchtime(max(int((until - now).total_seconds()), 0))
     return True, (
-        f"{mention_user(user)} {verb} {meta['label']}. {left} left. {meta['summary'].capitalize()}."
+        f"{mention_user(user)} {verb} {meta['label']} for {cost:,} points. {left} left. {meta['summary'].capitalize()}."
     )
 
 
@@ -2253,8 +2271,12 @@ def get_dashboard_settings() -> dict:
         "watchtime_points": get_watchtime_points(),
         "watchtime_minutes": get_watchtime_minutes(),
         "boost_watch_cost": boost_cost("watch"),
+        "boost_watch_cost_mode": boost_cost_mode("watch"),
+        "boost_watch_percentage": boost_percentage("watch"),
         "boost_watch_minutes": boost_minutes("watch"),
         "boost_luck_cost": boost_cost("luck"),
+        "boost_luck_cost_mode": boost_cost_mode("luck"),
+        "boost_luck_percentage": boost_percentage("luck"),
         "boost_luck_minutes": boost_minutes("luck"),
         "prefixes": ", ".join(prefixes),
         "primary_prefix": prefixes[0],
