@@ -1,5 +1,6 @@
 import calendar
 import json
+import math
 import os
 import random
 import secrets
@@ -289,8 +290,13 @@ def init_db():
         _ensure_column(conn, "custom_commands", "cooldown_seconds", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "custom_commands", "use_count", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "custom_commands", "last_used_at", "TEXT")
+        _ensure_column(conn, "points", "last_boost_purchase", "TEXT")
+        _ensure_column(conn, "points", "last_gambling_wager", "TEXT")
         _ensure_column(conn, "points", "last_watch_reward", "TEXT")
         _ensure_column(conn, "points", "watch_seconds", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "points", "shop_seen_at", "TEXT")
+        import shop
+        shop.init_schema(conn)
         if not conn.execute("SELECT 1 FROM config WHERE key = 'command_prefixes'").fetchone():
             env_prefixes = parse_prefixes(os.getenv("PREFIX") or "?,!") or ("?", "!")
             upsert_config(conn, "command_prefixes", ",".join(env_prefixes))
@@ -433,6 +439,43 @@ def try_spend_points(user_name: str, amount: int) -> tuple[bool, int]:
         return cursor.rowcount > 0, row["points"]
 
 
+ECONOMY_COOLDOWNS = {"boost": 60, "gambling": 30}
+MAX_ECONOMY_COOLDOWN = 86400
+
+
+def economy_cooldown_seconds(kind: str) -> int:
+    default = ECONOMY_COOLDOWNS[kind]
+    return min(parse_non_negative_int(get_setting(f"{kind}_cooldown_seconds", str(default)), default), MAX_ECONOMY_COOLDOWN)
+
+
+def _cooldown_remaining(raw: str | None, seconds: int, now: datetime) -> int:
+    if not raw or seconds <= 0:
+        return 0
+    try:
+        elapsed = max(0, (now - parse_iso(raw)).total_seconds())
+    except ValueError:
+        return 0
+    return max(0, math.ceil(seconds - elapsed))
+
+
+def try_gambling_wager(user_name: str, amount: int) -> tuple[bool, str | None, int]:
+    user = normalize_user(user_name)
+    starting_points = get_dashboard_settings()["starting_points"]
+    seconds = economy_cooldown_seconds("gambling")
+    with db_session() as conn:
+        ensure_user_row(conn, user, starting_points)
+        row = conn.execute("SELECT points, last_gambling_wager FROM points WHERE user = ?", (user,)).fetchone()
+        balance = row["points"]
+        if amount <= 0 or amount > balance:
+            return False, f"Invalid wager. You have {balance} points.", balance
+        now = utc_now()
+        wait = _cooldown_remaining(row["last_gambling_wager"], seconds, now)
+        if wait:
+            return False, f"Gambling is on cooldown. Try again in {wait} second{'s' if wait != 1 else ''}.", balance
+        conn.execute("UPDATE points SET points = points - ?, last_gambling_wager = ? WHERE user = ?", (amount, now.isoformat(), user))
+        return True, None, balance - amount
+
+
 SLOT_REELS = (
     ("🍒", 36),
     ("🍋", 28),
@@ -468,9 +511,9 @@ def play_slots(user_name: str, amount: int) -> tuple[bool, str | None, int, list
     user = normalize_user(user_name)
     if amount <= 0:
         return False, "Wager must be a positive number.", 0, [], 0
-    spent, remaining = try_spend_points(user, amount)
+    spent, error, remaining = try_gambling_wager(user, amount)
     if not spent:
-        return False, f"Invalid amount. You have {remaining} points.", remaining, [], 0
+        return False, error, remaining, [], 0
     reels = [spin_slot_reel(), spin_slot_reel(), spin_slot_reel()]
     payout, _luck = apply_luck_winnings(amount, slots_payout(reels, amount))
     total = change_points(user, payout) if payout else remaining
@@ -1441,6 +1484,7 @@ def set_command_prefixes(raw: str) -> tuple[bool, str | None]:
 
 
 FEATURE_MODULES = {
+    "shop": {"label": "Points shop", "blurb": "Challenges, titles, shout-outs, gifts, and celebration cosmetics", "off_message": "The shop is currently disabled."},
     "economy": {
         "label": "Economy",
         "blurb": "Points, daily, watch time, watch rewards, boosts, gamble, roulette, slots, transfer, and the leaderboard",
@@ -1517,6 +1561,10 @@ def set_feature_flags(flags: dict) -> None:
 
 
 BUILTIN_COMMANDS = {
+    "shop": {"blurb": "Browse available shop items and prices", "module": "shop"},
+    "buy": {"blurb": "Buy a shop item: code followed by a message if required", "module": "shop"},
+    "profile": {"blurb": "View owned titles and active celebration cosmetics", "module": "shop"},
+    "title": {"blurb": "Equip an owned title, or none to remove it", "module": "shop"},
     "ping": {"blurb": "Check that the bot is responding", "module": None},
     "help": {"blurb": "Whisper the commands enabled right now", "module": None},
     "uptime": {"blurb": "How long the bot has been online", "module": None},
@@ -2272,6 +2320,7 @@ def buy_boost(user_name: str, kind: str) -> tuple[bool, str]:
     user = normalize_user(user_name)
     starting_points = get_dashboard_settings()["starting_points"]
     minutes = boost_minutes(boost_kind)
+    cooldown = economy_cooldown_seconds("boost")
     # Charge, extend, and publish together so failed purchases cannot celebrate.
     with db_session() as conn:
         ensure_user_row(conn, user, starting_points)
@@ -2280,6 +2329,10 @@ def buy_boost(user_name: str, kind: str) -> tuple[bool, str]:
         if balance < cost:
             return False, f"{meta['label']} costs {cost:,} points. You have {balance:,}."
         now = utc_now()
+        last_purchase = conn.execute("SELECT last_boost_purchase FROM points WHERE user = ?", (user,)).fetchone()["last_boost_purchase"]
+        wait = _cooldown_remaining(last_purchase, cooldown, now)
+        if wait:
+            return False, f"Boost purchases are on cooldown. Try again in {wait} second{'s' if wait != 1 else ''}."
         current = None
         raw_until = get_config_value(conn, f"boost_{boost_kind}_until")
         if raw_until:
@@ -2290,11 +2343,14 @@ def buy_boost(user_name: str, kind: str) -> tuple[bool, str]:
             except ValueError:
                 pass
         until = (current or now) + timedelta(minutes=minutes)
-        conn.execute("UPDATE points SET points = points - ? WHERE user = ?", (cost, user))
+        conn.execute("UPDATE points SET points = points - ?, last_boost_purchase = ? WHERE user = ?", (cost, now.isoformat(), user))
         upsert_config(conn, f"boost_{boost_kind}_until", until.isoformat())
         upsert_config(conn, f"boost_{boost_kind}_user", user)
         events = _boost_events(get_config_value(conn, "boost_celebrations") or "[]", now)
+        import shop
+        reward_profile = shop._profile(conn, user, now)
         events.append({
+            "title": reward_profile["title"], "color": reward_profile["color"],
             "id": uuid.uuid4().hex, "kind": boost_kind, "label": meta["label"],
             "user": user, "summary": meta["summary"], "cost": cost,
             "extended": current is not None, "minutes": minutes,
@@ -2359,6 +2415,8 @@ def get_dashboard_settings() -> dict:
         "daily_max": daily_max,
         "starting_points": parse_non_negative_int(get_setting("starting_points", "100"), 100),
         "default_raffle_cost": max(parse_non_negative_int(get_setting("default_raffle_cost", "50"), 50), 1),
+        "boost_cooldown_seconds": economy_cooldown_seconds("boost"),
+        "gambling_cooldown_seconds": economy_cooldown_seconds("gambling"),
         "watchtime_points": get_watchtime_points(),
         "watchtime_minutes": get_watchtime_minutes(),
         "boost_watch_cost": boost_cost("watch"),

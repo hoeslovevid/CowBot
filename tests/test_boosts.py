@@ -19,6 +19,7 @@ class BoostTests(unittest.TestCase):
         self.database = patch.object(store, "DB_PATH", str(Path(self.directory.name) / "test.db"))
         self.database.start()
         store.init_db()
+        store.set_setting("boost_cooldown_seconds", "0")
 
     def tearDown(self):
         self.database.stop()

@@ -75,6 +75,39 @@ Prefixes are set in the dashboard. Defaults are `?` (and whatever you add, such 
 - `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`, `?ping`
 - Custom commands added from the dashboard, such as `?discord`
 
+## Points shop
+
+Open **Points shop** in the dashboard to manage the catalog, approval queue, viewer collections, and searchable purchase history. Five starter items are included; you can edit their prices or disable them before making them available to your community. Items have a chat code, price, description, stock (−1 means unlimited), and per-viewer cooldown. Pending requests reserve stock. Purchase receipts retain the original price and reward if you edit an item later.
+
+- **Streamer challenges:** viewers buy with a requested challenge. Approve the request, perform it on stream, then mark it completed. Reject a pending request or cancel an approved challenge to refund the original price and restore reserved stock.
+- **Profile titles:** permanent unlocks, automatically equipped on purchase. Viewers can switch between their owned titles. They appear in CowBot profiles and celebration details, rather than Twitch badges.
+- **On-screen shout-outs:** messages of up to 140 characters wait for approval before appearing on the celebration overlay. Rejecting them refunds points. The OBS source must already be loaded before approval; it does not replay older announcements after a refresh.
+- **Community gifts:** award the configured point amount to each other viewer seen in chat or the watch-time viewer list during the last 15 minutes. The buyer and known bots are excluded. Receipts list every recipient. If nobody is eligible, no purchase is made and no points are spent. Viewer-list availability depends on the bot's existing Twitch permissions; recent chat activity is also tracked.
+- **Temporary cosmetics:** mint, gold, violet, or rose styling for a viewer's boost and shop celebrations. Set the duration in minutes. Buying the same active color extends its time; buying another color replaces it. Expired cosmetics return to mint styling.
+
+Chat commands (using your configured prefix):
+
+```text
+?shop
+?buy challenge No healing next round!
+?buy legendairy
+?buy shoutout Good luck to the herd!
+?buy herd-gift
+?buy gold-glow
+?profile
+?profile viewername
+?title Legendairy
+?title none
+```
+
+Shout-outs, gift celebrations, and cosmetic previews use the existing **Boost celebrations** OBS source (800 × 450). Copy its URL from Settings. Shop data, approvals, titles, and cosmetic expiration times persist in the bot database. Turning off the Shop module or Economy stops new purchases; dashboard review and refunds remain available.
+
+## Boost and gambling cooldowns
+
+In **Settings → Economy**, set **Boost cooldown (seconds)** and **Gambling cooldown (seconds)** from 0 to 86,400. Defaults are 60 seconds for boosts and 30 seconds for gambling; 0 disables that cooldown.
+
+Cooldowns apply per viewer. Watch and Luck purchases/extensions share one boost cooldown; gamble, roulette, and slots share one gambling cooldown. The two groups are independent, so buying a boost does not block gambling. Cooldowns begin only after a successful purchase or accepted wager, apply to wins and losses, and survive restarts. Blocked attempts show the remaining wait without spending points or extending a boost. Duration changes use the viewer's last successful purchase/wager, including uses while the cooldown was disabled.
+
 ## Give and remove points
 
 On **Live**, below the leaderboard, **Adjust one viewer** lets you enter a username and an amount, then choose **Give points** or **Remove points**. Removing stops at zero; the result reports the amount actually removed.

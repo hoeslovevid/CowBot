@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CowBot Boost Celebrations</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='boost-overlay.css') }}?v=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='boost-overlay.css') }}?v=2">
 </head>
 <body>
   <main>
     <section id="celebration" aria-live="polite" hidden>
       <div class="sparkles" aria-hidden="true"><i>✦</i><i>✦</i><i>✧</i><i>✦</i><i>✧</i><i>✦</i></div>
       <div class="celebration-card">
-        <div class="badge" aria-hidden="true">×2</div>
+        <div id="reward-badge" class="badge" aria-hidden="true">×2</div>
         <p class="eyebrow" id="boost-action"></p>
         <h1 id="boost-buyer"></h1>
         <p class="effect" id="boost-effect"></p>
@@ -20,6 +20,6 @@
     </section>
     <section id="active-boosts" aria-label="Active boosts"></section>
   </main>
-  <script src="{{ url_for('static', filename='boost-overlay.js') }}?v=1"></script>
+  <script src="{{ url_for('static', filename='boost-overlay.js') }}?v=2"></script>
 </body>
 </html>

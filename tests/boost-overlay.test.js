@@ -11,7 +11,7 @@ function overlay(preview = false) {
     constructor(...args) { super(...(args.length ? args : [clock])); }
     static now() { return clock; }
   }
-  const element = () => ({ hidden: true, textContent: '', children: [],
+  const element = () => ({ attributes: {}, setAttribute(name,value) { this.attributes[name] = value; }, hidden: true, textContent: '', children: [],
     append(...items) { this.children.push(...items); }, replaceChildren() { this.children = []; } });
   const elements = Object.fromEntries(['celebration', 'active-boosts', 'boost-action', 'boost-buyer', 'boost-effect', 'boost-detail'].map(id => [id, element()]));
   const backend = { active: [], events: [], fail: false, requests: 0 };
@@ -98,4 +98,16 @@ test('sample preview shows both timers and makes no requests', () => {
   assert.equal(app.backend.requests, 0);
   assert.equal(app.elements.celebration.hidden, false);
   assert.equal(app.elements['active-boosts'].children.length, 2);
+});
+
+test('shop rewards display moderated text, profile titles and cosmetic styling', async () => {
+  const app = overlay();
+  await settle();
+  app.backend.events = [{ ...app.event('shop-reward'), kind: 'shop', label: 'On-screen shout-out',
+    summary: '<b>Go herd!</b>', detail: 'Shop reward · 500 points', title: 'Legendairy', color: 'gold' }];
+  await app.poll();
+  assert.equal(app.elements['boost-action'].textContent, 'On-screen shout-out');
+  assert.equal(app.elements['boost-effect'].textContent, '<b>Go herd!</b>');
+  assert.equal(app.elements['boost-detail'].textContent, '[Legendairy] · Shop reward · 500 points');
+  assert.equal(app.elements.celebration.attributes['data-color'], 'gold');
 });

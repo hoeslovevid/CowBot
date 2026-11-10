@@ -414,6 +414,7 @@ function setupTabs() {
     live: ["Stream overview", "Your community, your controls. All in one place.", "Overview"],
     commands: ["Chat commands", "A little personality for every conversation. Make your bot your own.", "Chat commands"],
     settings: ["Bot settings", "Fine-tune your economy, chat messages, and stream integrations.", "Settings"],
+    shop: ["Points shop", "Rewards for your herd. Manage items, requests, and viewer collections.", "Shop"],
     tts: ["Text to speech", "Give your community a voice. You stay in control of what plays.", "Text to speech"],
   };
   function show(name, focus, { initial = false } = {}) {

@@ -12,6 +12,7 @@ from twitchio.exceptions import HTTPException
 from twitchio.ext import commands
 
 import store
+import shop
 from api import create_api_app, start_api_server
 import tts
 
@@ -451,23 +452,19 @@ class CowCommands(commands.Component):
             await ctx.send(f"{author_name}, invalid amount. You have {current} points.")
             return
 
+        spent, error, remaining = store.try_gambling_wager(user, amount_value)
+        if not spent:
+            await ctx.send(f"{author_name}, {error}")
+            return
         win = random.choice([True, False])
         if win:
-            spent, remaining = store.try_spend_points(user, amount_value)
-            if not spent:
-                await ctx.send(f"{author_name}, invalid amount. You have {remaining} points.")
-                return
             credit, luck = store.apply_luck_winnings(amount_value, amount_value * 2)
             new_total = store.change_points(user, credit)
             won = credit - amount_value
             suffix = " (luck boost)" if luck else ""
             await ctx.send(f"{author_name} won {won} points{suffix}! Total: {new_total}.")
         else:
-            spent, new_total = store.try_spend_points(user, amount_value)
-            if not spent:
-                await ctx.send(f"{author_name}, invalid amount. You have {new_total} points.")
-                return
-            await ctx.send(f"{author_name} lost {amount_value} points. Total: {new_total}.")
+            await ctx.send(f"{author_name} lost {amount_value} points. Total: {remaining}.")
 
     @commands.command(name="roulette")
     async def roulette(self, ctx: commands.Context, amount: str):
@@ -484,9 +481,9 @@ class CowCommands(commands.Component):
             await ctx.send(f"{author_name}, invalid wager. You have {current} points.")
             return
 
-        spent, remaining = store.try_spend_points(user, wager)
+        spent, error, remaining = store.try_gambling_wager(user, wager)
         if not spent:
-            await ctx.send(f"{author_name}, invalid wager. You have {remaining} points.")
+            await ctx.send(f"{author_name}, {error}")
             return
 
         number = random.randint(0, 36)
@@ -537,6 +534,45 @@ class CowCommands(commands.Component):
             return
         _ok, message = store.buy_boost(get_author_name(ctx), kind)
         await ctx.send(message)
+
+    @commands.command(name="shop")
+    async def shop_command(self, ctx: commands.Context):
+        if not await require_command(ctx, "shop"):
+            return
+        for message in shop.catalog_messages():
+            await ctx.send(message)
+
+    @commands.command(name="buy")
+    async def buy(self, ctx: commands.Context, code: str | None = None, *, message: str = ""):
+        if not await require_command(ctx, "buy"):
+            return
+        if not code:
+            await ctx.send(f"Usage: {store.primary_prefix()}buy <shop-code> [challenge or shout-out message]")
+            return
+        _ok, result = shop.buy(get_author_name(ctx), code, message)
+        await ctx.send(result)
+
+    @commands.command(name="profile")
+    async def profile(self, ctx: commands.Context, user: str | None = None):
+        if not await require_command(ctx, "profile"):
+            return
+        name = store.normalize_user(user or get_author_name(ctx))
+        reward = shop.profile(name)
+        title = f" [{reward['title']}]" if reward['title'] else ""
+        cosmetic = f"{reward['color']} until {reward['cosmetic_until']}" if reward['cosmetic_until'] else "none"
+        text = f"{name}{title} — {store.get_points(name):,} points. Titles: {', '.join(reward['titles']) or 'none'}. Cosmetic: {cosmetic}."
+        for part in store._split_help_section(text, 440):
+            await ctx.send(part)
+
+    @commands.command(name="title")
+    async def title(self, ctx: commands.Context, *, name: str = ""):
+        if not await require_command(ctx, "title"):
+            return
+        if not name:
+            await ctx.send(f"Usage: {store.primary_prefix()}title <owned title|none>. View titles with {store.primary_prefix()}profile.")
+            return
+        _ok, result = shop.equip_title(get_author_name(ctx), name)
+        await ctx.send(result)
 
     @commands.command(name="giveaway")
     async def giveaway(self, ctx: commands.Context, action: str | None = None, *, name: str | None = None):
@@ -1805,6 +1841,7 @@ class CowBot(commands.Bot):
                 channel_name = store.normalize_user(CHANNEL)
                 if channel_name and channel_name not in store.WATCH_POINT_BOTS:
                     watchers.add(channel_name)
+                shop.mark_present(watchers - {store.normalize_user(os.getenv("TWITCH_NICK", ""))})
                 for name in watchers:
                     self._mark_session_watcher(name)
                 if last_tick and present:
@@ -1861,6 +1898,8 @@ class CowBot(commands.Bot):
         if message_id and self._already_handled_message(message_id):
             return
         self._note_watcher(chatter)
+        if self._stream_live:
+            shop.mark_present([chatter])
         if self._stream_live and self._can_claim_first(chatter) and self._current_stream is not None:
             stream_id = getattr(self._current_stream, "id", None)
             if stream_id:

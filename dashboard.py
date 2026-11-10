@@ -60,6 +60,8 @@ EMPTY_STATUS = {
         "daily_max": 100,
         "starting_points": 100,
         "default_raffle_cost": 50,
+        "boost_cooldown_seconds": 60,
+        "gambling_cooldown_seconds": 30,
         "watchtime_points": 10,
         "watchtime_minutes": 5,
         "boost_watch_cost": 500,
@@ -235,7 +237,7 @@ def finish(success: bool, ok_message: str, error: str | None = None):
 def cache_static(response):
     if request.path.startswith("/static/"):
         name = request.path.rsplit("/", 1)[-1]
-        if name in {"overlay.js", "wheel.js", "styles.css", "dashboard.css", "tts-dashboard.js", "tts-player.js", "boost-overlay.js", "boost-overlay.css"}:
+        if name in {"overlay.js", "wheel.js", "styles.css", "dashboard.css", "tts-dashboard.js", "tts-player.js", "boost-overlay.js", "boost-overlay.css", "shop-dashboard.js", "shop-dashboard.css"}:
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
         else:
             response.headers["Cache-Control"] = "public, max-age=604800, immutable"
@@ -435,6 +437,8 @@ def update_settings():
         "daily_max": data.get("daily_max"),
         "starting_points": data.get("starting_points"),
         "default_raffle_cost": data.get("default_raffle_cost"),
+        "boost_cooldown_seconds": data.get("boost_cooldown_seconds"),
+        "gambling_cooldown_seconds": data.get("gambling_cooldown_seconds"),
         "watchtime_points": data.get("watchtime_points"),
         "watchtime_minutes": data.get("watchtime_minutes"),
         "boost_watch_cost": data.get("boost_watch_cost"),
@@ -598,6 +602,23 @@ def manage_points():
             message = f"Gave {amount} points to {user}. Total: {total}."
         return finish(True, message)
     return finish(False, "Could not update points.", result.get("error") if isinstance(result, dict) else None)
+
+
+@app.route("/shop/state")
+def shop_state():
+    try:
+        response = requests.get(f"{BOT_API_URL}/api/shop", headers=bot_headers(),
+                                params={"user": request.args.get("user", ""), "offset": request.args.get("offset", "0")}, timeout=5)
+        response.raise_for_status()
+        return jsonify(response.json()), 200, {"Cache-Control": "no-store"}
+    except (requests.RequestException, ValueError):
+        return jsonify({"ok": False, "error": "The bot is unavailable. Shop data will return when it reconnects."}), 503
+
+
+@app.route("/shop", methods=["POST"])
+def manage_shop():
+    success, result = post_bot_data("/api/shop", posted())
+    return jsonify(result), 200 if success else 400
 
 
 @app.route("/points/bulk", methods=["POST"])

@@ -51,10 +51,14 @@
     }
     if (!event) return;
     showing = true;
-    document.getElementById("boost-action").textContent = `${event.label} ${event.extended ? "extended" : "activated"}`;
+    celebration.setAttribute("data-color", ["mint", "gold", "violet", "rose"].includes(event.color) ? event.color : "mint");
+    const badge = document.getElementById("reward-badge");
+    if (badge) badge.textContent = event.kind === "shop" ? "★" : "×2";
+    document.getElementById("boost-action").textContent = event.kind === "shop" ? event.label : `${event.label} ${event.extended ? "extended" : "activated"}`;
     document.getElementById("boost-buyer").textContent = event.user;
     document.getElementById("boost-effect").textContent = event.summary;
-    document.getElementById("boost-detail").textContent = `+${event.minutes} minutes for everyone · ${Number(event.cost).toLocaleString()} points`;
+    const title = event.title ? `[${event.title}] · ` : "";
+    document.getElementById("boost-detail").textContent = title + (event.detail || `+${event.minutes} minutes for everyone · ${Number(event.cost).toLocaleString()} points`);
     celebration.hidden = false;
     setTimeout(() => {
       celebration.hidden = true;

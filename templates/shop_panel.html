@@ -1,0 +1,41 @@
+<section class="panel" id="panel-shop" data-panel="shop" hidden>
+  <div class="shop-intro card">
+    <div><p class="eyebrow">The community shop</p><h2>A little reward. A big moment.</h2>
+      <p>Viewers browse with <code data-shop-command="shop">?shop</code> and purchase with <code data-shop-command="buy">?buy</code>. Challenges and shout-outs wait for your approval. Rejecting a pending request refunds its points.</p></div>
+    <div class="actions"><button class="ghost" type="button" id="shop-refresh">Refresh shop</button><button class="primary" type="button" id="shop-new">Add item</button></div>
+  </div>
+  <p id="shop-notice" role="status" class="muted"></p>
+  <div class="shop-stats" id="shop-stats"></div>
+  <div class="layout">
+    <section class="card wide"><div class="card-head"><div class="card-title">{{ icon('clock') }}<h2>Requests &amp; challenges</h2></div><p>Approve a challenge, perform it on stream, then mark it completed. Approving a shout-out sends it to the celebration overlay.</p></div><div id="shop-pending" class="shop-list"></div></section>
+    <section class="card"><div class="card-head"><div class="card-title">{{ icon('gift') }}<h2>Shop catalog</h2></div><p>All five reward types. Disabled items remain visible here for editing.</p></div><div id="shop-items" class="shop-list"></div></section>
+    <section class="card" id="shop-editor-card"><div class="card-head"><div class="card-title">{{ icon('settings') }}<h2 id="shop-editor-heading">Add shop item</h2></div><p>Changes affect future purchases. Existing requests retain their original price and reward.</p></div>
+      <form id="shop-item-form" class="stack">
+        <input type="hidden" name="id" value="0"><input type="hidden" name="version" value="0">
+        <div class="form-grid">
+          <label>Item name<input name="name" maxlength="60" required placeholder="Choose my next challenge"></label>
+          <label>Chat code<input name="slug" pattern="[a-z0-9][a-z0-9-]{0,31}" maxlength="32" required placeholder="challenge"></label>
+          <label>Reward type<select name="category"><option value="challenge">Streamer challenge</option><option value="title">Profile title</option><option value="shoutout">On-screen shout-out</option><option value="gift">Community gift</option><option value="cosmetic">Temporary cosmetic</option></select></label>
+          <label>Price (points)<input name="price" type="number" min="1" max="1000000" value="500" required></label>
+        </div>
+        <label>Description<textarea name="description" rows="2" maxlength="240" placeholder="Tell viewers what this reward does."></textarea></label>
+        <label data-shop-field="value"><span id="shop-value-label">Profile title or color</span><input name="value" maxlength="32" list="shop-colors"><datalist id="shop-colors"><option value="mint"><option value="gold"><option value="violet"><option value="rose"></datalist></label>
+        <p id="shop-category-hint" class="field-hint"></p>
+        <div class="form-grid">
+          <label data-shop-field="gift">Points per gift recipient<input name="gift_points" type="number" min="1" max="1000000" value="25" required></label>
+          <label data-shop-field="duration">Cosmetic duration (minutes)<input name="duration" type="number" min="1" max="1440" value="30" required></label>
+          <label>Available stock<input name="stock" type="number" min="-1" max="1000000" value="-1" required><span class="field-hint">−1 = unlimited. 0 = sold out. Pending requests reserve stock.</span></label>
+          <label>Viewer cooldown (seconds)<input name="cooldown" type="number" min="0" max="86400" value="60" required><span class="field-hint">Per item, per viewer. 0 disables it.</span></label>
+        </div>
+        <label class="module-toggle"><input name="enabled" type="checkbox" checked><span><strong>Available in chat</strong><em>Turn off to hide this item from viewers.</em></span></label>
+        <div class="actions"><button class="primary" type="submit">Save item</button><button class="ghost" type="button" id="shop-cancel-edit">Clear editor</button></div>
+      </form>
+    </section>
+    <section class="card wide"><div class="card-head"><div class="card-title">{{ icon('users') }}<h2>Viewer collections</h2></div><p>Owned titles, equipped titles, and active cosmetics. Viewers use <code>?profile</code> and <code>?title &lt;owned title|none&gt;</code>. Titles belong to CowBot profiles, rather than Twitch badges.</p></div><label>Find viewer<input id="shop-profile-filter" placeholder="Filter by username" autocomplete="off"></label><div id="shop-profiles" class="shop-list"></div></section>
+    <section class="card wide"><div class="card-head"><div class="card-title">{{ icon('coin') }}<h2>Purchase history</h2></div><p>Every purchase, approval, fulfillment, and refund. Gift receipts list their recipients.</p></div>
+      <form id="shop-history-filter" class="actions"><label>Viewer<input name="user" placeholder="All viewers" autocomplete="off"></label><button class="ghost" type="submit">Filter history</button></form>
+      <div id="shop-history" class="shop-list"></div><div class="actions shop-pagination"><button class="ghost" type="button" id="shop-prev">Previous</button><span id="shop-page" class="muted"></span><button class="ghost" type="button" id="shop-next">Next</button></div>
+    </section>
+    <section class="card wide"><div class="card-head"><div class="card-title">{{ icon('screen') }}<h2>Put shop rewards on stream</h2></div></div><p class="muted">Shout-outs, gift celebrations, and cosmetics use the <strong>Boost celebrations</strong> OBS source. Keep that source loaded before approving shout-outs. Cosmetics style that buyer's shop and boost celebrations until they expire.</p><button class="ghost" type="button" data-tab="settings" data-focus="boost-overlay-settings">Open overlay setup</button></section>
+  </div>
+</section>

@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from aiohttp import web
 
 import store
+import shop
 from tts import TTSQueue
 
 AnnounceFn = Callable[..., Awaitable[None]]
@@ -67,6 +68,12 @@ def create_api_app(
         boost_watch_minutes = store.parse_boost_minutes(payload.get("boost_watch_minutes"), 15)
         boost_luck_minutes = store.parse_boost_minutes(payload.get("boost_luck_minutes"), 15)
         boost_pricing = {}
+        for kind in store.ECONOMY_COOLDOWNS:
+            key = f"{kind}_cooldown_seconds"
+            raw = str(payload.get(key, store.economy_cooldown_seconds(kind)))
+            if not raw.isascii() or not raw.isdigit() or len(raw) > 5 or int(raw) > store.MAX_ECONOMY_COOLDOWN:
+                return web.json_response({"ok": False, "error": "Cooldowns must be whole seconds from 0 to 86400."}, status=400)
+            boost_pricing[key] = str(int(raw))
         for kind in store.BOOSTS:
             mode_key = f"boost_{kind}_cost_mode"
             percentage_key = f"boost_{kind}_percentage"
@@ -401,6 +408,26 @@ def create_api_app(
         await announce(f"Gave {amount:,} points each to {len(results)} viewers.")
         return web.json_response({"ok": True, "amount": amount, "count": len(results), "users": results})
 
+    async def shop_state(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        offset = store.parse_non_negative_int(request.query.get("offset", "0"), 0)
+        return web.json_response(shop.snapshot(request.query.get("user", ""), offset), headers={"Cache-Control": "no-store"})
+
+    async def manage_shop(request: web.Request) -> web.Response:
+        if unauthorized := await require_auth(request):
+            return unauthorized
+        data = await request.json()
+        action = data.get("action")
+        if action == "save":
+            ok, message = shop.save_item(data)
+        elif action in {"approve", "reject", "complete"}:
+            order_id = store.parse_non_negative_int(str(data.get("id", "")), 0)
+            ok, message = shop.review(order_id, action)
+        else:
+            return web.json_response({"ok": False, "error": "Unknown shop action."}, status=400)
+        return web.json_response({"ok": ok, "message" if ok else "error": message}, status=200 if ok else 400)
+
     async def reset_points(request: web.Request) -> web.Response:
         if unauthorized := await require_auth(request):
             return unauthorized
@@ -613,6 +640,8 @@ def create_api_app(
     app.router.add_post("/api/points", manage_points)
     app.router.add_post("/api/points/reset", reset_points)
     app.router.add_post("/api/points/bulk", bulk_points)
+    app.router.add_get("/api/shop", shop_state)
+    app.router.add_post("/api/shop", manage_shop)
     app.router.add_post("/api/quote", manage_quote)
     app.router.add_post("/api/schedule", manage_schedule)
     app.router.add_post("/api/commands", manage_commands)
