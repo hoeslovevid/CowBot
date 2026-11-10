@@ -1,13 +1,14 @@
 {% macro icon(name) -%}<svg class="icon" aria-hidden="true"><use href="#icon-{{ name }}"></use></svg>{%- endmacro %}
 {% macro cow_mark() -%}
-<div class="mark" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none"><rect class="mark-bg" width="64" height="64" rx="18"/><circle class="mark-spot" cx="20" cy="19" r="8"/><circle class="mark-spot" cx="44" cy="19" r="8"/><ellipse class="mark-face" cx="32" cy="35" rx="18" ry="18"/><ellipse class="mark-snout" cx="32" cy="43" rx="12" ry="8"/><circle class="mark-eye" cx="25" cy="31" r="2.5"/><circle class="mark-eye" cx="39" cy="31" r="2.5"/><circle class="mark-eye" cx="28" cy="43" r="1.5"/><circle class="mark-eye" cx="36" cy="43" r="1.5"/></svg></div>
+<div class="mark" aria-hidden="true"><img src="{{ url_for('static', filename='brand/cowbot-logo.svg') }}?v=1" alt="" width="96" height="96"></div>
 {%- endmacro %}
 <!doctype html>
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101312">
+  <meta name="theme-color" content="#121116">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/cowbot-logo.svg') }}?v=1">
   <title>CowBot Control</title>
   <script>
     try {
@@ -19,8 +20,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=17">
-  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=3">
-  <link rel="stylesheet" href="{{ url_for('static', filename='shop-dashboard.css') }}?v=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=4">
+  <link rel="stylesheet" href="{{ url_for('static', filename='shop-dashboard.css') }}?v=2">
 </head>
 <body data-prefix="{{ status.settings.primary_prefix }}">
   <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><symbol id="icon-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol><symbol id="icon-gift" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12M12 8H8.5A2.5 2.5 0 1 1 11 5.5L12 8Zm0 0h3.5A2.5 2.5 0 1 0 13 5.5L12 8Z"/></symbol><symbol id="icon-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="9" cy="7" r="4"/></symbol><symbol id="icon-chart" viewBox="0 0 24 24"><path d="M4 3v17h17M9 15v-4M14 15V7M19 15v-6"/></symbol><symbol id="icon-command" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-12-2 16"/></symbol><symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol><symbol id="icon-settings" viewBox="0 0 24 24"><path d="m9 3-.6 2.1-2 .9-2.1-.5-2 3.5 1.5 1.6v2.8L2.3 15l2 3.5 2.1-.5 2 .9L9 21h4l.6-2.1 2-.9 2.1.5 2-3.5-1.5-1.6v-2.8L19.7 9l-2-3.5-2.1.5-2-.9L13 3Z"/><circle cx="11" cy="12" r="3"/></symbol><symbol id="icon-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4m-5-13 2 2 3-3"/></symbol><symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol><symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol><symbol id="icon-bolt" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-7l1-7Z"/></symbol><symbol id="icon-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></symbol><symbol id="icon-cup" viewBox="0 0 24 24"><path d="M8 3h8v6a4 4 0 0 1-8 0V3ZM8 5H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v6m-4 2h8"/></symbol><symbol id="icon-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 8h-4a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H9m3-10v12"/></symbol><symbol id="icon-leaf" viewBox="0 0 24 24"><path d="M20 3C7 2 2 8 5 15c7 6 16 0 15-12ZM4 21 15 10"/></symbol><symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol><symbol id="icon-quote" viewBox="0 0 24 24"><path d="M10 11H4V5h6v6c0 5-2 7-5 8m15-8h-6V5h6v6c0 5-2 7-5 8"/></symbol><symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol></defs></svg>
@@ -28,7 +29,7 @@
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <button class="nav-backdrop" type="button" aria-label="Close navigation" tabindex="-1" hidden></button>
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
-    <a href="#" class="brand" data-tab="live">{{ cow_mark() }}<div><div class="brand-name">cow<span>bot</span></div><p class="brand-subtitle">Your stream sidekick</p></div></a>
+    <a href="#" class="brand" data-tab="live">{{ cow_mark() }}<div><div class="brand-name">cow<span>bot</span></div><p class="brand-subtitle">STREAM CONTROL</p></div></a>
     <p class="nav-label">Workspace</p>
     <nav aria-label="Stream tools">
       <button type="button" class="side-link is-active" data-tab="live">{{ icon('grid') }}Overview<span class="nav-tag">HOME</span></button>
@@ -75,12 +76,12 @@
     <section class="panel is-active" id="panel-live" data-panel="live" aria-label="Stream overview">
       <section class="hero" aria-label="Welcome to your control room">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="status-dot"></span>Less managing. More streaming.</p>
-          <h2>Good streams start<br>with <span>great company.</span></h2>
-          <p>Give your chat more ways to play, win, and belong.<br>Your trusty sidekick takes care of the rest.</p>
-          <div class="hero-actions"><button type="button" class="primary" data-tab="live" data-focus="giveaway">{{ icon('plus') }}Start a giveaway</button><button type="button" class="ghost" data-tab="commands">Explore commands{{ icon('arrow') }}</button></div>
+          <p class="eyebrow"><span class="hero-label">THE COWBOT CONTROL ROOM</span><span class="hero-stream-state" data-live="stream_label">{{ 'Live now' if status.stream_live else 'Between streams' }}</span></p>
+          <h2>Your stream.<br><span>Your herd.</span></h2>
+          <p>A home for the moments that make your chat yours.<br>Bring everyone in on the action.</p>
+          <div class="hero-actions"><button type="button" class="primary" data-tab="live" data-focus="giveaway">{{ icon('gift') }}Start a giveaway</button><button type="button" class="ghost" data-tab="shop">{{ icon('coin') }}Open the shop{{ icon('arrow') }}</button></div>
         </div>
-        <div class="hero-art" aria-hidden="true"><div class="orbit"></div><div class="orbit two"></div><div class="orbit three"></div>{{ cow_mark() }}<span class="orbit-dot"></span><span class="orbit-dot second"></span><div class="floating-chip first">{{ icon('bolt') }}Powered by your community</div><div class="floating-chip last">{{ icon('heart') }}Made for the moments</div></div>
+        <div class="hero-art" aria-hidden="true"><div class="orbit"></div><div class="orbit two"></div><div class="orbit three"></div>{{ cow_mark() }}<span class="orbit-dot"></span><span class="orbit-dot second"></span><div class="floating-chip first">{{ icon('heart') }}For your kind of community</div><div class="floating-chip last"><span class="hero-avatar">{{ icon('users') }}</span><span>GOOD COMPANY<br><strong>Great stream energy.</strong></span></div></div>
       </section>
       <section class="stats" aria-label="Community at a glance">
         <article class="stat"><div class="stat-top"><span>Giveaway entries</span><span class="stat-icon">{{ icon('gift') }}</span></div><strong data-live="giveaway_entry_count">{{ status.giveaway_entry_count }}</strong><em data-live="giveaway_meta">{{ status.active_giveaway or 'Ready for your next giveaway' }}</em></article>
@@ -88,7 +89,7 @@
         <article class="stat"><div class="stat-top"><span>Custom commands</span><span class="stat-icon">{{ icon('command') }}</span></div><strong data-live="command_count">{{ status.custom_commands | length }}</strong><em data-live="command_meta">Make your chat feel like home</em></article>
         <article class="stat"><div class="stat-top"><span>Active modules</span><span class="stat-icon">{{ icon('bolt') }}</span></div><strong data-live="module_count">{{ status.features.values() | selectattr('enabled') | list | length }}<span style="font-size:14px;color:var(--muted)"> / {{ status.features | length }}</span></strong><em>Fine-tuned for your stream</em></article>
       </section>
-      <div class="section-heading"><h2>Make something happen</h2><span><i class="status-dot" data-sync-dot></i><span data-live="sync_label">Updates every 8 seconds</span></span></div>
+      <div class="section-heading"><h2>Your live toolkit</h2><span><i class="status-dot" data-sync-dot></i><span data-live="sync_label">Updates every 8 seconds</span></span></div>
       <div class="workspace-grid">
         <div class="layout">
         <section class="card wide{% if not status.features.giveaway.enabled %} is-off{% endif %}" data-module-card="giveaway" id="giveaway">
@@ -532,7 +533,7 @@
         </section>
       </div>
     </section>
-    <footer class="workspace-footer"><span>{{ icon('leaf') }}Made for your little corner of Twitch.</span><span>CowBot control room <span aria-hidden="true">·</span> A better stream starts here</span></footer>
+    <footer class="workspace-footer"><span>{{ icon('leaf') }}CowBot · Made for your herd.</span><span>CowBot control room <span aria-hidden="true">·</span> A better stream starts here</span></footer>
   </main>
 
   <div id="giveaway-wheel" class="wheel-modal" hidden>
@@ -557,7 +558,7 @@
   <script src="{{ url_for('static', filename='tts-dashboard.js') }}?v=2"></script>
   <script id="initial-status" type="application/json">{{ status | tojson }}</script>
   <script src="{{ url_for('static', filename='wheel.js') }}?v=15"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=29"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=30"></script>
   <script src="{{ url_for('static', filename='shop-dashboard.js') }}?v=1"></script>
 </body>
 </html>

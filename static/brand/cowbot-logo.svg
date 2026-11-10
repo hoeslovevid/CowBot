@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <title>CowBot</title>
+  <path d="M30 7h36c14 0 23 9 23 23v31c0 14-9 23-23 23H37L22 94V82C12 79 7 71 7 61V30C7 16 16 7 30 7Z" fill="#BBA6FF"/>
+  <path d="M30 32c-8-3-10-10-7-17 8 1 14 8 14 15m22 2c8-3 10-10 7-17-8 1-14 8-14 15" fill="#F0D0A1"/>
+  <path d="M31 37C22 27 13 30 15 38c1 7 9 11 17 10m33-11c9-10 18-7 16 1-1 7-9 11-17 10" fill="#FFF9EF"/>
+  <path d="M28 43c0-14 8-22 20-22s20 8 20 22v17c0 12-8 20-20 20S28 72 28 60V43Z" fill="#FFF9EF"/>
+  <path d="M28 43c0-12 5-19 14-21 5 4 9 10 8 16-1 8-7 13-16 14l-6-1v-8Z" fill="#292335"/>
+  <circle cx="37" cy="45" r="3" fill="#FFF9EF"/>
+  <circle cx="59" cy="45" r="3" fill="#292335"/>
+  <ellipse cx="48" cy="63" rx="24" ry="15" fill="#AFE9CB"/>
+  <ellipse cx="38" cy="61" rx="3" ry="4" transform="rotate(18 38 61)" fill="#292335"/>
+  <ellipse cx="58" cy="61" rx="3" ry="4" transform="rotate(-18 58 61)" fill="#292335"/>
+  <path d="M43 70c3 3 7 3 10 0" stroke="#292335" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="m80 5 2.5 6.5L89 14l-6.5 2.5L80 23l-2.5-6.5L71 14l6.5-2.5L80 5Z" fill="#AFE9CB"/>
+</svg>

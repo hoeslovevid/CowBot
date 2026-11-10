@@ -341,6 +341,7 @@ function applyStatus(status, { commands = false } = {}) {
   setPill(status);
   setText("channel", `#${status.channel || "offline"}`);
   setText("uptime", status.uptime || "Waiting for bot");
+  setText("stream_label", status.stream_live ? "Live now" : "Between streams");
   setText("bot_name", status.bot_name || "CowBot");
   setText("prefix", settings.primary_prefix || "?");
   setText("active_giveaway", status.active_giveaway || "Idle");
@@ -514,7 +515,7 @@ function applyTheme(theme) {
     toggle.title = toLight ? "Light mode" : "Dark mode";
   }
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "light" ? "#f3f5f1" : "#101312";
+  if (meta) meta.content = next === "light" ? "#f6f4f9" : "#121116";
 }
 
 function setupTheme() {
