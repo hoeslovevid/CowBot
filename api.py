@@ -8,6 +8,7 @@ from aiohttp import web
 
 import store
 import shop
+import chat_messages as chat
 from tts import TTSQueue
 
 AnnounceFn = Callable[..., Awaitable[None]]
@@ -168,7 +169,7 @@ def create_api_app(
             success, error = store.create_poll(name, question, options)
             if not success:
                 return web.json_response({"ok": False, "error": error}, status=400)
-            await announce(f"Poll '{name}' started: {question} Options: {', '.join(store.unique_options(options))}")
+            await announce(chat.line("poll", f"Poll '{name}' started: {question} Options: {', '.join(store.unique_options(options))}"))
             return web.json_response({"ok": True})
         if action == "end":
             active_poll = store.get_active_poll_name()
@@ -176,7 +177,7 @@ def create_api_app(
                 return web.json_response({"ok": False, "error": "There is no active poll."}, status=400)
             results = store.end_poll(active_poll)
             top = ", ".join(f"{row['option']}({row['votes']})" for row in results)
-            await announce(f"Poll '{active_poll}' ended. Results: {top}")
+            await announce(chat.line("poll", f"Poll '{active_poll}' ended. Results: {top}"))
             return web.json_response({"ok": True, "results": top})
         return web.json_response({"ok": False, "error": "Unknown poll action."}, status=400)
 
@@ -195,7 +196,7 @@ def create_api_app(
             success, error = store.create_raffle(name, cost)
             if not success:
                 return web.json_response({"ok": False, "error": error}, status=400)
-            await announce(f"Raffle '{name}' started with entry cost {cost} points. Type {store.primary_prefix()}raffle enter.")
+            await announce(chat.line("raffle", f"Raffle '{name}' started with entry cost {cost} points. Type {store.primary_prefix()}raffle enter."))
             return web.json_response({"ok": True})
         if action == "end":
             active_raffle = store.get_active_raffle_name()
@@ -203,9 +204,9 @@ def create_api_app(
                 return web.json_response({"ok": False, "error": "There is no active raffle."}, status=400)
             winner = store.end_raffle(active_raffle)
             if winner:
-                await announce(f"Raffle '{active_raffle}' ended! The winner is {winner}.")
+                await announce(chat.line("raffle", f"Raffle '{active_raffle}' ended! The winner is {winner}."))
             else:
-                await announce(f"Raffle '{active_raffle}' ended with no entries.")
+                await announce(chat.line("raffle", f"Raffle '{active_raffle}' ended with no entries."))
             return web.json_response({"ok": True, "winner": winner})
         return web.json_response({"ok": False, "error": "Unknown raffle action."}, status=400)
 
@@ -224,7 +225,7 @@ def create_api_app(
                 return web.json_response({"ok": False, "error": result}, status=400)
             cap = store.current_queue_state()["cap"]
             extra = f" Cap {cap}." if cap else ""
-            await announce(f"Queue '{result}' is open! Type {prefix}queue to join.{extra}")
+            await announce(chat.line("queue", f"Queue '{result}' is open! Type {prefix}queue to join.{extra}"))
             return web.json_response({"ok": True, "name": result, "cap": cap})
         if action == "next":
             user, error, remaining = store.next_queue()
@@ -232,32 +233,32 @@ def create_api_app(
                 return web.json_response({"ok": False, "error": error}, status=400)
             name = store.current_queue_state()["name"]
             leftover = f"{remaining} remaining." if remaining else "Queue is empty."
-            await announce(f"{store.mention_user(user)} you're up for {name}! {leftover}")
+            await announce(chat.line("queue", f"{store.mention_user(user)} you're up for {name}! {leftover}"))
             return web.json_response({"ok": True, "user": user, "remaining": remaining, "name": name})
         if action == "close":
             success, result = store.close_queue()
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
-            await announce(f"Queue '{result}' is closed. No more joins.")
+            await announce(chat.line("queue", f"Queue '{result}' is closed. No more joins."))
             return web.json_response({"ok": True, "name": result})
         if action == "open":
             success, result = store.open_queue()
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
-            await announce(f"Queue '{result}' is open again. Type {prefix}queue to join.")
+            await announce(chat.line("queue", f"Queue '{result}' is open again. Type {prefix}queue to join."))
             return web.json_response({"ok": True, "name": result})
         if action == "remove":
             user = (payload.get("user") or "").strip()
             success, result = store.remove_from_queue(user)
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
-            await announce(f"{store.mention_user(result)} was removed from the queue.")
+            await announce(chat.line("queue", f"{store.mention_user(result)} was removed from the queue."))
             return web.json_response({"ok": True, "user": result})
         if action == "clear":
             success, result = store.clear_queue()
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
-            await announce(f"Queue '{result}' was cleared.")
+            await announce(chat.line("queue", f"Queue '{result}' was cleared."))
             return web.json_response({"ok": True, "name": result})
         return web.json_response({"ok": False, "error": "Unknown queue action."}, status=400)
 
@@ -274,11 +275,7 @@ def create_api_app(
             if not success:
                 return web.json_response({"ok": False, "error": result}, status=400)
             count = store.get_giveaway_winner_count()
-            extra = f" Drawing {count} winners." if count > 1 else ""
-            await announce(
-                f"Giveaway '{result}' started! Type {store.primary_prefix()}giveaway to join.{extra}",
-                pin_giveaway=True,
-            )
+            await announce(chat.giveaway_open(result, store.primary_prefix(), count), pin_giveaway=True)
             return web.json_response({"ok": True, "name": result, "count": count})
         if action == "draw":
             winners, giveaway_name, entries = store.draw_giveaway(payload.get("count"))
@@ -294,21 +291,8 @@ def create_api_app(
         if action == "complete":
             winners, giveaway_name, is_reroll, replaced, drawn_winner = store.complete_giveaway_draw()
             if winners and giveaway_name:
-                if is_reroll and replaced:
-                    await announce(
-                        f"Giveaway '{giveaway_name}' reroll: {store.mention_user(replaced)} is out. "
-                        f"The new winner is {store.mention_user(drawn_winner or winners[0])}."
-                    )
-                elif is_reroll:
-                    await announce(
-                        f"Giveaway '{giveaway_name}' was rerolled! The new winner is {store.format_winners(winners)}."
-                    )
-                else:
-                    label = "winner is" if len(winners) == 1 else "winners are"
-                    await announce(
-                        f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.",
-                        unpin_giveaway=True,
-                    )
+                for index, message in enumerate(chat.giveaway_results(giveaway_name, winners, reroll=is_reroll, replaced=replaced, selected=drawn_winner)):
+                    await announce(message, unpin_giveaway=not is_reroll and index == 0)
                 return web.json_response({
                     "ok": True,
                     "winner": winners[0],
@@ -336,11 +320,8 @@ def create_api_app(
         if action == "end":
             winners, giveaway_name = store.finish_giveaway()
             if winners and giveaway_name:
-                label = "winner is" if len(winners) == 1 else "winners are"
-                await announce(
-                    f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.",
-                    unpin_giveaway=True,
-                )
+                for index, message in enumerate(chat.giveaway_results(giveaway_name, winners)):
+                    await announce(message, unpin_giveaway=index == 0)
                 return web.json_response({"ok": True, "winner": winners[0], "winners": winners, "name": giveaway_name})
             return web.json_response({"ok": False, "error": giveaway_name or "No giveaway is currently active."}, status=400)
         if action == "cancel":
@@ -348,7 +329,7 @@ def create_api_app(
             if not success:
                 return web.json_response({"ok": False, "error": result or "No giveaway is currently active."}, status=400)
             await announce(
-                f"Giveaway '{result}' was cancelled. No winner was chosen.",
+                chat.giveaway_cancelled(result),
                 unpin_giveaway=True,
             )
             return web.json_response({"ok": True, "name": result})
@@ -388,9 +369,9 @@ def create_api_app(
             return web.json_response({"ok": False, "error": error}, status=400)
         user, total, amount = results[0]["user"], results[0]["total"], results[0]["amount"]
         if amount > 0:
-            await announce(f"{store.mention_user(user)} gained {amount} points. Total: {total}.")
+            await announce(chat.line("points", f"{store.mention_user(user)} gained {amount} points. Total: {total}."))
         else:
-            await announce(f"{store.mention_user(user)} lost {abs(amount)} points. Total: {total}.")
+            await announce(chat.line("points", f"{store.mention_user(user)} lost {abs(amount)} points. Total: {total}."))
         return web.json_response({"ok": True, "user": user, "amount": amount, "total": total})
 
     async def bulk_points(request: web.Request) -> web.Response:
@@ -405,7 +386,7 @@ def create_api_app(
         ok, error, results = store.adjust_points(payload.get("users"), amount)
         if not ok:
             return web.json_response({"ok": False, "error": error}, status=400)
-        await announce(f"Gave {amount:,} points each to {len(results)} viewers.")
+        await announce(chat.line("points", f"Gave {amount:,} points each to {len(results)} viewers."))
         return web.json_response({"ok": True, "amount": amount, "count": len(results), "users": results})
 
     async def shop_state(request: web.Request) -> web.Response:

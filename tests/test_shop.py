@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import dashboard
+import chat_messages as chat
 import shop
 import store
 from api import create_api_app
@@ -206,7 +207,7 @@ class ShopTests(unittest.TestCase):
             self.assertEqual(client.post("/shop", json={"action": "reject", "id": 1}).status_code, 200)
             post.assert_called_once_with("/api/shop", {"action": "reject", "id": 1})
         tree = ast.parse(Path("bot.py").read_text(encoding="utf-8"))
-        namespace = {"store": store, "shop": shop, "get_author_name": lambda ctx: "buyer", "require_command": AsyncMock(return_value=True)}
+        namespace = {"store": store, "shop": shop, "chat": chat, "get_author_name": lambda ctx: "buyer", "require_command": AsyncMock(return_value=True)}
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name in {"shop_command", "buy", "profile", "title"}:
                 function = copy.deepcopy(node); function.decorator_list = []

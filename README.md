@@ -75,6 +75,21 @@ Prefixes are set in the dashboard. Defaults are `?` (and whatever you add, such 
 - `?poll`, `?raffle`, `?quote`, `?leaderboard`, `?uptime`, `?ping`
 - Custom commands added from the dashboard, such as `?discord`
 
+## Chat presentation
+
+Shop, giveaway, boost, profile, points, gambling, poll, raffle, and queue replies use consistent category labels and small icons. All command prompts use the configured prefix.
+
+The shop shows one compact page at a time, with up to three items. Use `?shop 2` (or `?shop page 2`) for another page and `?shop shoutout` for an item's description, price, approval requirements, stock, cooldown, and purchase command. Long catalogs are split without omitting item codes. Profiles show cosmetic time remaining, and owned titles are grouped into readable messages. Giveaway winners are split across messages when needed, preserving every mention.
+
+Examples using `!` as the configured prefix:
+
+```text
+🎁 GIVEAWAY • OPEN — friday loot • Free entry → !giveaway • 2 winners
+🏆 WINNER • friday loot • @luckycow • Congratulations!
+```
+
+Messages are plain text with readable separators, rather than Markdown or HTML. Generated messages stay below Twitch's message limit; customized commands and scheduled messages keep their existing wording.
+
 ## Points shop
 
 Open **Points shop** in the dashboard to manage the catalog, approval queue, viewer collections, and searchable purchase history. Five starter items are included; you can edit their prices or disable them before making them available to your community. Items have a chat code, price, description, stock (−1 means unlimited), and per-viewer cooldown. Pending requests reserve stock. Purchase receipts retain the original price and reward if you edit an item later.

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import dashboard
+import chat_messages as chat
 import store
 from api import create_api_app
 
@@ -105,7 +106,7 @@ class CooldownTests(unittest.TestCase):
 
     def test_all_chat_gambling_commands_share_the_same_cooldown(self):
         tree = ast.parse(Path("bot.py").read_text(encoding="utf-8"))
-        namespace = {"store": store, "random": random, "get_author_name": lambda ctx: ctx.username,
+        namespace = {"store": store, "random": random, "chat": chat, "get_author_name": lambda ctx: ctx.username,
                      "require_command": AsyncMock(return_value=True)}
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name in {"gamble", "roulette", "slots"}:

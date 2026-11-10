@@ -13,6 +13,7 @@ from twitchio.ext import commands
 
 import store
 import shop
+import chat_messages as chat
 from api import create_api_app, start_api_server
 import tts
 
@@ -403,27 +404,27 @@ class CowCommands(commands.Component):
         action = parts[0].lower() if parts else ""
         if action in {"give", "add", "remove", "take"}:
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can give or remove points.")
+                await ctx.send(chat.line("points", "Only mods and the broadcaster can give or remove points."))
                 return
             if len(parts) < 3 or not parts[2].isdigit():
-                await ctx.send(f"Usage: {store.primary_prefix()}points {action} <user> <amount>")
+                await ctx.send(chat.line("points", f"Usage: {store.primary_prefix()}points {action} <user> <amount>"))
                 return
             amount = int(parts[2])
             if action in {"remove", "take"}:
                 amount = -amount
             ok, result, total = store.grant_points(parts[1], amount)
             if not ok:
-                await ctx.send(result or "Could not update points.")
+                await ctx.send(chat.line("points", result or "Could not update points."))
                 return
             user = result
             if amount > 0:
-                await ctx.send(f"{store.mention_user(user)} gained {amount} points. Total: {total}.")
+                await ctx.send(chat.line("points", f"{store.mention_user(user)} gained {amount} points. Total: {total}."))
             else:
-                await ctx.send(f"{store.mention_user(user)} lost {abs(amount)} points. Total: {total}.")
+                await ctx.send(chat.line("points", f"{store.mention_user(user)} lost {abs(amount)} points. Total: {total}."))
             return
         target = store.normalize_user(rest or get_author_name(ctx))
         points = store.get_points(target)
-        await ctx.send(f"{target} has {points} points.")
+        await ctx.send(chat.line("points", f"{target} has {points} points."))
 
     @commands.command(name="daily")
     async def daily(self, ctx: commands.Context):
@@ -432,9 +433,9 @@ class CowCommands(commands.Component):
         author_name = get_author_name(ctx)
         claimed, earned, new_total = store.try_claim_daily(author_name)
         if claimed:
-            await ctx.send(f"{author_name}, you claimed your daily reward and earned {earned} points! Total: {new_total}.")
+            await ctx.send(chat.line("points", f"{author_name}, you claimed your daily reward and earned {earned} points! Total: {new_total}."))
         else:
-            await ctx.send(f"{author_name}, you already claimed your daily reward. Come back tomorrow.")
+            await ctx.send(chat.line("points", f"{author_name}, you already claimed your daily reward. Come back tomorrow."))
 
     @commands.command(name="gamble")
     async def gamble(self, ctx: commands.Context, amount: str):
@@ -445,16 +446,16 @@ class CowCommands(commands.Component):
         current = store.get_points(user)
         amount_value, parse_error = store.parse_wager(amount, current)
         if amount_value is None:
-            await ctx.send(f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}gamble <amount|percent|all>'}")
+            await ctx.send(chat.line("gambling", f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}gamble <amount|percent|all>'}"))
             return
 
         if amount_value <= 0 or amount_value > current:
-            await ctx.send(f"{author_name}, invalid amount. You have {current} points.")
+            await ctx.send(chat.line("gambling", f"{author_name}, invalid amount. You have {current} points."))
             return
 
         spent, error, remaining = store.try_gambling_wager(user, amount_value)
         if not spent:
-            await ctx.send(f"{author_name}, {error}")
+            await ctx.send(chat.line("gambling", f"{author_name}, {error}"))
             return
         win = random.choice([True, False])
         if win:
@@ -462,9 +463,9 @@ class CowCommands(commands.Component):
             new_total = store.change_points(user, credit)
             won = credit - amount_value
             suffix = " (luck boost)" if luck else ""
-            await ctx.send(f"{author_name} won {won} points{suffix}! Total: {new_total}.")
+            await ctx.send(chat.line("gambling", f"{author_name} won {won} points{suffix}! Total: {new_total}."))
         else:
-            await ctx.send(f"{author_name} lost {amount_value} points. Total: {remaining}.")
+            await ctx.send(chat.line("gambling", f"{author_name} lost {amount_value} points. Total: {remaining}."))
 
     @commands.command(name="roulette")
     async def roulette(self, ctx: commands.Context, amount: str):
@@ -475,15 +476,15 @@ class CowCommands(commands.Component):
         current = store.get_points(user)
         wager, parse_error = store.parse_wager(amount, current)
         if wager is None:
-            await ctx.send(f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}roulette <amount|percent|all>'}")
+            await ctx.send(chat.line("gambling", f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}roulette <amount|percent|all>'}"))
             return
         if wager <= 0 or wager > current:
-            await ctx.send(f"{author_name}, invalid wager. You have {current} points.")
+            await ctx.send(chat.line("gambling", f"{author_name}, invalid wager. You have {current} points."))
             return
 
         spent, error, remaining = store.try_gambling_wager(user, wager)
         if not spent:
-            await ctx.send(f"{author_name}, {error}")
+            await ctx.send(chat.line("gambling", f"{author_name}, {error}"))
             return
 
         number = random.randint(0, 36)
@@ -492,9 +493,9 @@ class CowCommands(commands.Component):
             payout, luck = store.apply_luck_winnings(wager, wager * 36)
             new_total = store.change_points(user, payout)
             suffix = " (luck boost)" if luck else ""
-            await ctx.send(f"{author_name} hit {number}! You win {payout} points{suffix}! Total: {new_total}.")
+            await ctx.send(chat.line("gambling", f"{author_name} hit {number}! You win {payout} points{suffix}! Total: {new_total}."))
         else:
-            await ctx.send(f"{author_name} spun {number} and lost {wager} points. Total: {remaining}.")
+            await ctx.send(chat.line("gambling", f"{author_name} spun {number} and lost {wager} points. Total: {remaining}."))
 
     @commands.command(name="slots")
     async def slots(self, ctx: commands.Context, amount: str):
@@ -505,14 +506,14 @@ class CowCommands(commands.Component):
         current = store.get_points(user)
         wager, parse_error = store.parse_wager(amount, current)
         if wager is None:
-            await ctx.send(f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}slots <amount|percent|all>'}")
+            await ctx.send(chat.line("gambling", f"{author_name}, {parse_error or f'Usage: {store.primary_prefix()}slots <amount|percent|all>'}"))
             return
         if wager <= 0 or wager > current:
-            await ctx.send(f"{author_name}, invalid amount. You have {current} points.")
+            await ctx.send(chat.line("gambling", f"{author_name}, invalid amount. You have {current} points."))
             return
         ok, error, total, reels, payout = store.play_slots(user, wager)
         if not ok:
-            await ctx.send(f"{author_name}, {error or 'Could not play slots.'}")
+            await ctx.send(chat.line("gambling", f"{author_name}, {error or 'Could not play slots.'}"))
             return
         line = " | ".join(reels)
         luck = bool(payout) and store.is_boost_active("luck")
@@ -523,23 +524,23 @@ class CowCommands(commands.Component):
             result = f"won {payout} points{suffix}"
         else:
             result = f"lost {wager} points"
-        await ctx.send(f"{author_name} spun {line} and {result}. Total: {total}.")
+        await ctx.send(chat.line("gambling", f"{author_name} spun {line} and {result}. Total: {total}."))
 
     @commands.command(name="boost")
     async def boost(self, ctx: commands.Context, kind: str | None = None):
         if not await require_command(ctx, "boost"):
             return
         if not (kind or "").strip():
-            await ctx.send(store.boost_overview())
+            await ctx.send(chat.line("boost", store.boost_overview()))
             return
-        _ok, message = store.buy_boost(get_author_name(ctx), kind)
-        await ctx.send(message)
+        ok, message = store.buy_boost(get_author_name(ctx), kind)
+        await ctx.send(chat.line("boost", "PURCHASED" if ok else "TRY AGAIN", message))
 
     @commands.command(name="shop")
-    async def shop_command(self, ctx: commands.Context):
+    async def shop_command(self, ctx: commands.Context, *, query: str = ""):
         if not await require_command(ctx, "shop"):
             return
-        for message in shop.catalog_messages():
+        for message in shop.catalog_messages(query):
             await ctx.send(message)
 
     @commands.command(name="buy")
@@ -547,10 +548,10 @@ class CowCommands(commands.Component):
         if not await require_command(ctx, "buy"):
             return
         if not code:
-            await ctx.send(f"Usage: {store.primary_prefix()}buy <shop-code> [challenge or shout-out message]")
+            await ctx.send(chat.line("shop", f"Buy → {store.primary_prefix()}buy <code> [message]", f"Browse → {store.primary_prefix()}shop"))
             return
-        _ok, result = shop.buy(get_author_name(ctx), code, message)
-        await ctx.send(result)
+        ok, result = shop.buy(get_author_name(ctx), code, message)
+        await ctx.send(chat.line("shop", "PURCHASED" if ok else "TRY AGAIN", result))
 
     @commands.command(name="profile")
     async def profile(self, ctx: commands.Context, user: str | None = None):
@@ -558,21 +559,22 @@ class CowCommands(commands.Component):
             return
         name = store.normalize_user(user or get_author_name(ctx))
         reward = shop.profile(name)
-        title = f" [{reward['title']}]" if reward['title'] else ""
-        cosmetic = f"{reward['color']} until {reward['cosmetic_until']}" if reward['cosmetic_until'] else "none"
-        text = f"{name}{title} — {store.get_points(name):,} points. Titles: {', '.join(reward['titles']) or 'none'}. Cosmetic: {cosmetic}."
-        for part in store._split_help_section(text, 440):
-            await ctx.send(part)
+        title = f"[{reward['title']}]" if reward['title'] else "No title equipped"
+        cosmetic = f"{reward['color']} · {store.format_watchtime(max(0, int((store.parse_iso(reward['cosmetic_until']) - store.utc_now()).total_seconds())))} left" if reward['cosmetic_until'] else "none"
+        await ctx.send(chat.line("profile", f"{store.mention_user(name)} {title}", f"{store.get_points(name):,} pts", f"Cosmetic: {cosmetic}"))
+        owned = chat.groups(reward["titles"], budget=310, max_items=8, separator=" · ")
+        for index, titles in enumerate(owned, 1):
+            await ctx.send(chat.line("profile", f"{store.mention_user(name)} · Titles {index}/{len(owned)}", " · ".join(titles), f"Equip → {store.primary_prefix()}title <title>"))
 
     @commands.command(name="title")
     async def title(self, ctx: commands.Context, *, name: str = ""):
         if not await require_command(ctx, "title"):
             return
         if not name:
-            await ctx.send(f"Usage: {store.primary_prefix()}title <owned title|none>. View titles with {store.primary_prefix()}profile.")
+            await ctx.send(chat.line("profile", f"Equip → {store.primary_prefix()}title <owned title|none>", f"Your collection → {store.primary_prefix()}profile"))
             return
-        _ok, result = shop.equip_title(get_author_name(ctx), name)
-        await ctx.send(result)
+        ok, result = shop.equip_title(get_author_name(ctx), name)
+        await ctx.send(chat.line("profile", "TITLE UPDATED" if ok else "TITLE UNAVAILABLE", result))
 
     @commands.command(name="giveaway")
     async def giveaway(self, ctx: commands.Context, action: str | None = None, *, name: str | None = None):
@@ -585,10 +587,10 @@ class CowCommands(commands.Component):
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
                 print(f"Giveaway start denied | {get_author_name(ctx)}")
-                await ctx.send("Only mods and the broadcaster can start giveaways.")
+                await ctx.send(chat.line("giveaway", "Only mods and the broadcaster can start giveaways."))
                 return
             if not name:
-                await ctx.send(f"Usage: {store.primary_prefix()}giveaway start <name> [winners]")
+                await ctx.send(chat.line("giveaway", f"Usage: {store.primary_prefix()}giveaway start <name> [winners]"))
                 return
             winner_count = 1
             parts = name.rsplit(None, 1)
@@ -596,72 +598,62 @@ class CowCommands(commands.Component):
                 name, winner_count = parts[0], int(parts[1])
             success, result = store.start_giveaway(name, winner_count)
             if not success:
-                await ctx.send(result or "Could not start giveaway.")
+                await ctx.send(chat.line("giveaway", result or "Could not start giveaway."))
                 return
             count = store.get_giveaway_winner_count()
-            extra = f" Drawing {count} winners." if count > 1 else ""
-            sent = await ctx.send(
-                f"Giveaway '{name}' started! Type {store.primary_prefix()}giveaway to join.{extra}"
-            )
+            sent = await ctx.send(chat.giveaway_open(result or name, store.primary_prefix(), count))
             await self.bot.pin_giveaway_message(getattr(sent, "id", None))
         elif action == "enter":
             mention = get_author_mention(ctx)
             success, result = store.enter_giveaway(get_author_name(ctx))
             if not success:
                 if result and "already entered" in result:
-                    await ctx.reply(f"{mention} you are already entered in the giveaway.")
+                    await ctx.reply(chat.line("giveaway", f"{mention} You're already entered", "Good luck!"))
                 else:
-                    await ctx.reply(f"{mention} {result or 'Could not enter giveaway.'}")
+                    await ctx.reply(chat.line("giveaway", f"{mention} {result or 'Could not enter giveaway.'}"))
                 return
-            await ctx.reply(f"{mention} you entered the giveaway '{store.get_active_giveaway()}'.")
+            await ctx.reply(chat.line("giveaway", f"{mention} You're in!", chat.clip(store.get_active_giveaway(), 160), "Good luck!"))
         elif action == "end":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can end giveaways.")
+                await ctx.send(chat.line("giveaway", "Only mods and the broadcaster can end giveaways."))
                 return
             winners, giveaway_name = store.finish_giveaway()
             if winners and giveaway_name:
                 await self.bot.unpin_giveaway_message()
-                label = "winner is" if len(winners) == 1 else "winners are"
-                await ctx.send(f"Giveaway '{giveaway_name}' ended! The {label} {store.format_winners(winners)}.")
+                for message in chat.giveaway_results(giveaway_name, winners):
+                    await ctx.send(message)
             else:
-                await ctx.send(giveaway_name or "No giveaway is currently active.")
+                await ctx.send(chat.line("giveaway", giveaway_name or "No giveaway is currently active."))
         elif action == "cancel":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can cancel giveaways.")
+                await ctx.send(chat.line("giveaway", "Only mods and the broadcaster can cancel giveaways."))
                 return
             success, result = store.cancel_giveaway()
             if not success:
-                await ctx.send(result or "No giveaway is currently active.")
+                await ctx.send(chat.line("giveaway", result or "No giveaway is currently active."))
                 return
             await self.bot.unpin_giveaway_message()
-            await ctx.send(f"Giveaway '{result}' was cancelled. No winner was chosen.")
+            await ctx.send(chat.giveaway_cancelled(result))
         elif action == "reroll":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can reroll giveaways.")
+                await ctx.send(chat.line("giveaway", "Only mods and the broadcaster can reroll giveaways."))
                 return
             winners, giveaway_name, _entries, _replaced = store.reroll_giveaway(name)
             if not winners or not giveaway_name:
-                await ctx.send(giveaway_name or "There is no giveaway to reroll.")
+                await ctx.send(chat.line("giveaway", giveaway_name or "There is no giveaway to reroll."))
                 return
             winners, giveaway_name, is_reroll, replaced, drawn_winner = store.complete_giveaway_draw()
             if winners and giveaway_name:
-                if is_reroll and replaced:
-                    await ctx.send(
-                        f"Giveaway '{giveaway_name}' reroll: {store.mention_user(replaced)} is out. "
-                        f"The new winner is {store.mention_user(drawn_winner or winners[0])}."
-                    )
-                else:
-                    await ctx.send(
-                        f"Giveaway '{giveaway_name}' was rerolled! The new winner is {store.format_winners(winners)}."
-                    )
+                for message in chat.giveaway_results(giveaway_name, winners, reroll=is_reroll, replaced=replaced, selected=drawn_winner):
+                    await ctx.send(message)
             else:
-                await ctx.send(giveaway_name or "Could not reroll the giveaway.")
+                await ctx.send(chat.line("giveaway", giveaway_name or "Could not reroll the giveaway."))
         else:
             await ctx.send(
-                f"Giveaway commands: {store.primary_prefix()}giveaway, "
+                chat.line("giveaway", f"Giveaway commands: {store.primary_prefix()}giveaway, "
                 f"{store.primary_prefix()}giveaway start <name> [winners], "
                 f"{store.primary_prefix()}giveaway end, {store.primary_prefix()}giveaway cancel, "
-                f"{store.primary_prefix()}giveaway reroll [user]"
+                f"{store.primary_prefix()}giveaway reroll [user]")
             )
 
     @commands.command(name="quote")
@@ -705,8 +697,8 @@ class CowCommands(commands.Component):
         if not rows:
             await ctx.send("No leaderboard entries yet.")
             return
-        leaderboard = ", ".join(f"{row['user']}({row['points']})" for row in rows)
-        await ctx.send(f"Top points: {leaderboard}")
+        leaderboard = " | ".join(f"#{index} {store.mention_user(row['user'])} — {row['points']:,} pts" for index, row in enumerate(rows, 1))
+        await ctx.send(chat.line("points", "TOP 5", leaderboard))
 
     @commands.command(name="watchtime", aliases=["wt"])
     async def watchtime(self, ctx: commands.Context, target: str | None = None):
@@ -749,24 +741,24 @@ class CowCommands(commands.Component):
             return
         if not action:
             await ctx.send(
-                f"Poll commands: {store.primary_prefix()}poll start <name> | <question> | <options>, "
-                f"{store.primary_prefix()}poll vote <option>, {store.primary_prefix()}poll end"
+                chat.line("poll", f"Poll commands: {store.primary_prefix()}poll start <name> | <question> | <options>, "
+                f"{store.primary_prefix()}poll vote <option>, {store.primary_prefix()}poll end")
             )
             return
         action = action.lower()
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can start polls.")
+                await ctx.send(chat.line("poll", "Only mods and the broadcaster can start polls."))
                 return
             if not args or "|" not in args:
                 await ctx.send(
-                    f"Usage: {store.primary_prefix()}poll start <poll name> | <question> | <option1>, <option2>, ..."
+                    chat.line("poll", f"Usage: {store.primary_prefix()}poll start <poll name> | <question> | <option1>, <option2>, ...")
                 )
                 return
             parts = [part.strip() for part in args.split("|")]
             if len(parts) < 3:
                 await ctx.send(
-                    f"Usage: {store.primary_prefix()}poll start <poll name> | <question> | <option1>, <option2>, ..."
+                    chat.line("poll", f"Usage: {store.primary_prefix()}poll start <poll name> | <question> | <option1>, <option2>, ...")
                 )
                 return
             name = parts[0]
@@ -774,50 +766,50 @@ class CowCommands(commands.Component):
             options = [opt.strip() for opt in parts[2].split(",") if opt.strip()]
             success, error = store.create_poll(name, question, options)
             if not success:
-                await ctx.send(error or "Could not start poll.")
+                await ctx.send(chat.line("poll", error or "Could not start poll."))
                 return
-            await ctx.send(f"Poll '{name}' started: {question} Options: {', '.join(store.unique_options(options))}")
+            await ctx.send(chat.line("poll", f"Poll '{name}' started: {question} Options: {', '.join(store.unique_options(options))}"))
         elif action == "vote":
             active_poll = store.get_active_poll_name()
             if not active_poll:
-                await ctx.send("There is no active poll.")
+                await ctx.send(chat.line("poll", "There is no active poll."))
                 return
             if not args:
-                await ctx.send(f"Usage: {store.primary_prefix()}poll vote <option>")
+                await ctx.send(chat.line("poll", f"Usage: {store.primary_prefix()}poll vote <option>"))
                 return
             author_name = get_author_name(ctx)
             success, result = store.vote_poll(active_poll, author_name, args)
             if not success:
-                await ctx.send(result or "Could not register your vote.")
+                await ctx.send(chat.line("poll", result or "Could not register your vote."))
                 return
-            await ctx.send(f"{author_name} voted for {result} in poll '{active_poll}'.")
+            await ctx.send(chat.line("poll", f"{author_name} voted for {result} in poll '{active_poll}'."))
         elif action == "status":
             active_poll = store.get_active_poll_name()
             if not active_poll:
-                await ctx.send("There is no active poll.")
+                await ctx.send(chat.line("poll", "There is no active poll."))
                 return
             question = store.get_poll_question(active_poll)
             options = store.get_poll_options(active_poll)
             results = ", ".join(f"{row['option']}({row['votes']})" for row in options)
-            await ctx.send(f"Poll '{active_poll}': {question} Results: {results}")
+            await ctx.send(chat.line("poll", f"Poll '{active_poll}': {question} Results: {results}"))
         elif action == "end":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can end polls.")
+                await ctx.send(chat.line("poll", "Only mods and the broadcaster can end polls."))
                 return
             active_poll = store.get_active_poll_name()
             if not active_poll:
-                await ctx.send("There is no active poll.")
+                await ctx.send(chat.line("poll", "There is no active poll."))
                 return
             results = store.end_poll(active_poll)
             if not results:
-                await ctx.send(f"Poll '{active_poll}' ended with no votes.")
+                await ctx.send(chat.line("poll", f"Poll '{active_poll}' ended with no votes."))
                 return
             top = ", ".join(f"{row['option']}({row['votes']})" for row in results)
-            await ctx.send(f"Poll '{active_poll}' ended. Results: {top}")
+            await ctx.send(chat.line("poll", f"Poll '{active_poll}' ended. Results: {top}"))
         else:
             await ctx.send(
-                f"Poll commands: {store.primary_prefix()}poll start <name> | <question> | <options>, "
-                f"{store.primary_prefix()}poll vote <option>, {store.primary_prefix()}poll end"
+                chat.line("poll", f"Poll commands: {store.primary_prefix()}poll start <name> | <question> | <options>, "
+                f"{store.primary_prefix()}poll vote <option>, {store.primary_prefix()}poll end")
             )
 
     @commands.command(name="raffle")
@@ -826,66 +818,66 @@ class CowCommands(commands.Component):
             return
         if not action:
             await ctx.send(
-                f"Raffle commands: {store.primary_prefix()}raffle start <name> | <cost>, "
-                f"{store.primary_prefix()}raffle enter, {store.primary_prefix()}raffle end"
+                chat.line("raffle", f"Raffle commands: {store.primary_prefix()}raffle start <name> | <cost>, "
+                f"{store.primary_prefix()}raffle enter, {store.primary_prefix()}raffle end")
             )
             return
         action = action.lower()
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can start raffles.")
+                await ctx.send(chat.line("raffle", "Only mods and the broadcaster can start raffles."))
                 return
             if not args:
-                await ctx.send(f"Usage: {store.primary_prefix()}raffle start <name> | <cost>")
+                await ctx.send(chat.line("raffle", f"Usage: {store.primary_prefix()}raffle start <name> | <cost>"))
                 return
             if "|" in args:
                 name, cost_text = [part.strip() for part in args.split("|", 1)]
                 cost = store.parse_non_negative_int(cost_text, 0)
                 if cost <= 0:
-                    await ctx.send("Entry cost must be a positive number.")
+                    await ctx.send(chat.line("raffle", "Entry cost must be a positive number."))
                     return
             else:
                 name = args.strip()
                 if not name:
-                    await ctx.send(f"Usage: {store.primary_prefix()}raffle start <name> | <cost>")
+                    await ctx.send(chat.line("raffle", f"Usage: {store.primary_prefix()}raffle start <name> | <cost>"))
                     return
                 cost = store.get_dashboard_settings()["default_raffle_cost"]
             success, error = store.create_raffle(name, cost)
             if not success:
-                await ctx.send(error or "Could not start raffle.")
+                await ctx.send(chat.line("raffle", error or "Could not start raffle."))
                 return
             await ctx.send(
-                f"Raffle '{name}' started with entry cost {cost} points. Type {store.primary_prefix()}raffle enter."
+                chat.line("raffle", f"Raffle '{name}' started with entry cost {cost} points. Type {store.primary_prefix()}raffle enter.")
             )
         elif action == "enter":
             active_raffle = store.get_active_raffle_name()
             if not active_raffle:
-                await ctx.send("There is no active raffle.")
+                await ctx.send(chat.line("raffle", "There is no active raffle."))
                 return
             author_name = get_author_name(ctx)
             success, error = store.enter_raffle(active_raffle, author_name)
             if not success:
-                await ctx.send(error or "Failed to enter raffle.")
+                await ctx.send(chat.line("raffle", error or "Failed to enter raffle."))
                 return
             cost = store.get_raffle_cost(active_raffle)
-            await ctx.send(f"{author_name} entered raffle '{active_raffle}' for {cost} points.")
+            await ctx.send(chat.line("raffle", f"{author_name} entered raffle '{active_raffle}' for {cost} points."))
         elif action == "end":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can end raffles.")
+                await ctx.send(chat.line("raffle", "Only mods and the broadcaster can end raffles."))
                 return
             active_raffle = store.get_active_raffle_name()
             if not active_raffle:
-                await ctx.send("There is no active raffle.")
+                await ctx.send(chat.line("raffle", "There is no active raffle."))
                 return
             winner = store.end_raffle(active_raffle)
             if not winner:
-                await ctx.send(f"Raffle '{active_raffle}' ended with no entries.")
+                await ctx.send(chat.line("raffle", f"Raffle '{active_raffle}' ended with no entries."))
                 return
-            await ctx.send(f"Raffle '{active_raffle}' ended! The winner is {winner}.")
+            await ctx.send(chat.line("raffle", f"Raffle '{active_raffle}' ended! The winner is {winner}."))
         else:
             await ctx.send(
-                f"Raffle commands: {store.primary_prefix()}raffle start <name> | <cost>, "
-                f"{store.primary_prefix()}raffle enter, {store.primary_prefix()}raffle end"
+                chat.line("raffle", f"Raffle commands: {store.primary_prefix()}raffle start <name> | <cost>, "
+                f"{store.primary_prefix()}raffle enter, {store.primary_prefix()}raffle end")
             )
 
     @commands.command(name="queue", aliases=["q"])
@@ -900,45 +892,45 @@ class CowCommands(commands.Component):
         if action in {"", "join"}:
             place, total, name = store.get_queue_position(author_name)
             if name and place:
-                await ctx.reply(f"{mention} you are #{place} of {total} in '{name}'.")
+                await ctx.reply(chat.line("queue", f"{mention} you are #{place} of {total} in '{name}'."))
                 return
             success, result, place, total = store.join_queue(author_name)
             if not success:
-                await ctx.reply(f"{mention} {result or 'Could not join the queue.'}")
+                await ctx.reply(chat.line("queue", f"{mention} {result or 'Could not join the queue.'}"))
                 return
             name = store.current_queue_state()["name"]
-            await ctx.reply(f"{mention} you joined '{name}' at #{place} of {total}.")
+            await ctx.reply(chat.line("queue", f"{mention} you joined '{name}' at #{place} of {total}."))
             return
 
         if action == "leave":
             success, result = store.leave_queue(author_name)
             if not success:
-                await ctx.reply(f"{mention} {result or 'Could not leave the queue.'}")
+                await ctx.reply(chat.line("queue", f"{mention} {result or 'Could not leave the queue.'}"))
                 return
-            await ctx.reply(f"{mention} you left the queue.")
+            await ctx.reply(chat.line("queue", f"{mention} you left the queue."))
             return
 
         if action == "list":
             state = store.current_queue_state()
             if not state["name"]:
-                await ctx.send("No queue is currently running.")
+                await ctx.send(chat.line("queue", "No queue is currently running."))
                 return
             entries = state["entries"][:10]
             if not entries:
-                await ctx.send(f"Queue '{state['name']}' is empty.")
+                await ctx.send(chat.line("queue", f"Queue '{state['name']}' is empty."))
                 return
             names = ", ".join(f"{row['place']}. {row['user']}" for row in entries)
             extra = f" (+{state['count'] - 10} more)" if state["count"] > 10 else ""
             status = "open" if state["open"] else "closed"
-            await ctx.send(f"Queue '{state['name']}' ({status}, {state['count']}): {names}{extra}")
+            await ctx.send(chat.line("queue", f"{chat.clip(state['name'], 60)} · {status.upper()} · {state['count']} viewers", f"{names}{extra}"))
             return
 
         if action == "start":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can start the queue.")
+                await ctx.send(chat.line("queue", "Only mods and the broadcaster can start the queue."))
                 return
             if not args:
-                await ctx.send(f"Usage: {prefix}queue start <name> [max]")
+                await ctx.send(chat.line("queue", f"Usage: {prefix}queue start <name> [max]"))
                 return
             cap = 0
             parts = args.rsplit(None, 1)
@@ -948,77 +940,77 @@ class CowCommands(commands.Component):
                 name = args.strip()
             success, result = store.start_queue(name, cap)
             if not success:
-                await ctx.send(result or "Could not start queue.")
+                await ctx.send(chat.line("queue", result or "Could not start queue."))
                 return
             parsed_cap = store.current_queue_state()["cap"]
             extra = f" Cap {parsed_cap}." if parsed_cap else ""
-            await ctx.send(f"Queue '{result}' is open! Type {prefix}queue to join.{extra}")
+            await ctx.send(chat.line("queue", f"Queue '{result}' is open! Type {prefix}queue to join.{extra}"))
             return
 
         if action in {"next", "pop"}:
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can call the next person.")
+                await ctx.send(chat.line("queue", "Only mods and the broadcaster can call the next person."))
                 return
             user, error, remaining = store.next_queue()
             if error:
-                await ctx.send(error)
+                await ctx.send(chat.line("queue", error))
                 return
             name = store.current_queue_state()["name"]
             leftover = f"{remaining} remaining." if remaining else "Queue is empty."
-            await ctx.send(f"{store.mention_user(user)} you're up for {name}! {leftover}")
+            await ctx.send(chat.line("queue", f"{store.mention_user(user)} you're up for {name}! {leftover}"))
             return
 
         if action == "close":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can close the queue.")
+                await ctx.send(chat.line("queue", "Only mods and the broadcaster can close the queue."))
                 return
             success, result = store.close_queue()
             if not success:
-                await ctx.send(result or "Could not close the queue.")
+                await ctx.send(chat.line("queue", result or "Could not close the queue."))
                 return
-            await ctx.send(f"Queue '{result}' is closed. No more joins.")
+            await ctx.send(chat.line("queue", f"Queue '{result}' is closed. No more joins."))
             return
 
         if action == "open":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can reopen the queue.")
+                await ctx.send(chat.line("queue", "Only mods and the broadcaster can reopen the queue."))
                 return
             success, result = store.open_queue()
             if not success:
-                await ctx.send(result or "Could not reopen the queue.")
+                await ctx.send(chat.line("queue", result or "Could not reopen the queue."))
                 return
-            await ctx.send(f"Queue '{result}' is open again. Type {prefix}queue to join.")
+            await ctx.send(chat.line("queue", f"Queue '{result}' is open again. Type {prefix}queue to join."))
             return
 
         if action in {"remove", "skip"}:
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can remove people from the queue.")
+                await ctx.send(chat.line("queue", "Only mods and the broadcaster can remove people from the queue."))
                 return
             target = (args or "").strip()
             if not target:
-                await ctx.send(f"Usage: {prefix}queue remove <user>")
+                await ctx.send(chat.line("queue", f"Usage: {prefix}queue remove <user>"))
                 return
             success, result = store.remove_from_queue(target)
             if not success:
-                await ctx.send(result or "Could not remove that user.")
+                await ctx.send(chat.line("queue", result or "Could not remove that user."))
                 return
-            await ctx.send(f"{store.mention_user(result)} was removed from the queue.")
+            await ctx.send(chat.line("queue", f"{store.mention_user(result)} was removed from the queue."))
             return
 
         if action == "clear":
             if not is_mod_or_broadcaster(ctx):
-                await ctx.send("Only mods and the broadcaster can clear the queue.")
+                await ctx.send(chat.line("queue", "Only mods and the broadcaster can clear the queue."))
                 return
             success, result = store.clear_queue()
             if not success:
-                await ctx.send(result or "Could not clear the queue.")
+                await ctx.send(chat.line("queue", result or "Could not clear the queue."))
                 return
-            await ctx.send(f"Queue '{result}' was cleared.")
+            await ctx.send(chat.line("queue", f"Queue '{result}' was cleared."))
             return
 
         await ctx.send(
-            f"Queue commands: {prefix}queue, {prefix}queue leave, {prefix}queue list. "
-            f"Mods: {prefix}queue start <name> [max], {prefix}queue next, {prefix}queue close, {prefix}queue clear."
+            chat.line("queue", f"Queue commands: {prefix}queue, {prefix}queue leave, {prefix}queue list. "
+            f"Mods: {prefix}queue start <name> [max], {prefix}queue next, {prefix}queue close, {prefix}queue clear.")
         )
 
     @commands.command(name="transfer")
@@ -1029,18 +1021,18 @@ class CowCommands(commands.Component):
         from_user = store.normalize_user(author_name)
         to_user = store.normalize_user(target)
         if from_user == to_user:
-            await ctx.send("You cannot transfer points to yourself.")
+            await ctx.send(chat.line("points", "You cannot transfer points to yourself."))
             return
         if not amount.isdigit() or amount == "0":
-            await ctx.send(f"Usage: {store.primary_prefix()}transfer <user> <amount>")
+            await ctx.send(chat.line("points", f"Usage: {store.primary_prefix()}transfer <user> <amount>"))
             return
         amount_value = int(amount)
         spent, current = store.try_spend_points(from_user, amount_value)
         if not spent:
-            await ctx.send(f"{author_name}, invalid amount. You have {current} points.")
+            await ctx.send(chat.line("points", f"{author_name}, invalid amount. You have {current} points."))
             return
         store.change_points(to_user, amount_value)
-        await ctx.send(f"{author_name} transferred {amount_value} points to {to_user}.")
+        await ctx.send(chat.line("points", f"{author_name} transferred {amount_value} points to {to_user}."))
 
 
 

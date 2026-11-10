@@ -5,6 +5,7 @@ import uuid
 from datetime import timedelta
 
 import store
+import chat_messages as chat
 
 CATEGORIES = {
     "challenge": "Streamer challenge", "title": "Profile title", "shoutout": "On-screen shout-out",
@@ -224,8 +225,9 @@ def buy(user_name, slug, message=""):
             result = "Awaiting streamer approval." if pending else _fulfill(conn, order, item, now)
             conn.execute("UPDATE shop_orders SET result=? WHERE id=?", (result, order["id"]))
         if pending:
-            return True, f"{user} bought {item['name']} for {item['price']:,} points. Order #{order['id']} is awaiting approval; rejected requests are refunded."
-        return True, f"{user} bought {item['name']} for {item['price']:,} points. " + ("Gift delivered!" if item["category"] == "gift" else result)
+            return True, f"@{user} · {item['name']} · {item['price']:,} pts · Request #{order['id']} awaiting approval · Refunded if rejected"
+        detail = "Gift delivered!" if item["category"] == "gift" else f"{item['value'].capitalize()} celebrations · {item['duration']} min added" if item["category"] == "cosmetic" else result
+        return True, f"@{user} · {item['name']} · {item['price']:,} pts · {detail}"
     except ValueError as exc:
         return False, str(exc)
 
@@ -283,19 +285,32 @@ def snapshot(user_filter="", offset=0):
             "profiles": profiles, "categories": CATEGORIES, "offset": offset}
 
 
-def catalog_messages():
+def catalog_messages(query=""):
     if not store.is_feature_enabled("shop") or not store.is_feature_enabled("economy"):
-        return ["The shop is currently disabled."]
-    items = list_items(True)
+        return [chat.line("shop", "Currently closed", "Check back soon")]
     prefix = store.primary_prefix()
-    if not items:
-        return ["The shop has no available items right now."]
-    lines = [f"{r['slug']}: {r['name']} ({r['price']:,} points)" for r in items]
-    messages, current = [], f"Shop — {prefix}buy <code> [message]: "
-    for line in lines:
-        if len(current) + len(line) + 3 > 440:
-            messages.append(current)
-            current = "Shop: "
-        current += (" | " if not current.endswith(": ") else "") + line
-    messages.append(current)
-    return messages
+    query = str(query or "").strip().lower()
+    items = list_items()
+    available = [item for item in items if item["enabled"] and item["stock"] != 0]
+    detail_item = next((item for item in items if item["enabled"] and item["slug"] == query), None)
+    if query and (detail_item or (not query.isdigit() and not query.startswith("page "))):
+        item = detail_item
+        if not item:
+            return [chat.line("shop", "Item not found", f"Browse → {prefix}shop")]
+        category = item["category"]
+        detail = f"{item['gift_points']:,} pts per other recent viewer" if category == "gift" else f"{item['value']} · {item['duration']} min" if category == "cosmetic" else f"Unlock: {item['value']}" if category == "title" else "Approval required · rejected requests refunded"
+        stock = "SOLD OUT" if item["stock"] == 0 else f"{item['stock']} left" if item["stock"] > 0 else "Unlimited stock"
+        buy = f"Buy → {prefix}buy {item['slug']}" + (" <message>" if category in {"challenge", "shoutout"} else "")
+        return [chat.line("shop", f"{chat.REWARDS[category]} {chat.clip(item['name'], 60)} — {item['price']:,} pts",
+                          chat.clip(item["description"], 105), chat.clip(detail, 65), f"{stock} · {item['cooldown']}s cooldown", buy)]
+    if not available:
+        return [chat.line("shop", "No items available right now", "Check back soon")]
+    rows = [f"{chat.REWARDS[item['category']]} {chat.clip(item['name'], 60)} [{item['slug']}] — {item['price']:,} pts" for item in available]
+    pages = chat.groups(rows)
+    raw_page = query[5:].strip() if query.startswith("page ") else query or "1"
+    if not raw_page.isascii() or not raw_page.isdigit() or len(raw_page) > 6 or not 1 <= int(raw_page) <= len(pages):
+        return [chat.line("shop", f"Choose a page from 1 to {len(pages)}", f"Browse → {prefix}shop")]
+    page = int(raw_page)
+    next_page = f"Next → {prefix}shop page {page+1}" if page < len(pages) else None
+    return [chat.line("shop", f"{page}/{len(pages)}", " | ".join(pages[page-1]),
+                      f"Buy → {prefix}buy <code> [message]", next_page, f"Details → {prefix}shop <code>")]
