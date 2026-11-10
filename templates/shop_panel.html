@@ -19,6 +19,7 @@
           <label>Price (points)<input name="price" type="number" min="1" max="1000000" value="500" required></label>
         </div>
         <label>Description<textarea name="description" rows="2" maxlength="240" placeholder="Tell viewers what this reward does."></textarea></label>
+        <label class="module-toggle" data-shop-field="challenge-message"><input name="requires_message" type="checkbox"><span><strong>Viewer supplies the challenge</strong><em>Off: buying the code requests the challenge described above. On: the viewer must include their own challenge text.</em></span></label>
         <label data-shop-field="value"><span id="shop-value-label">Profile title or color</span><input name="value" maxlength="32" list="shop-colors"><datalist id="shop-colors"><option value="mint"><option value="gold"><option value="violet"><option value="rose"></datalist></label>
         <p id="shop-category-hint" class="field-hint"></p>
         <div class="form-grid">

@@ -26,6 +26,13 @@ def init_schema(conn):
         item TEXT NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL, result TEXT NOT NULL DEFAULT '')""")
     store._ensure_column(conn, "shop_items", "version", "INTEGER NOT NULL DEFAULT 0")
+    had_message_setting = "requires_message" in store._column_names(conn, "shop_items")
+    store._ensure_column(conn, "shop_items", "requires_message", "INTEGER NOT NULL DEFAULT 0")
+    if not had_message_setting:
+        # Preset challenges already created by the streamer should work with
+        # just their code. Preserve the starter's custom-request behavior.
+        conn.execute("""UPDATE shop_items SET requires_message=1
+            WHERE slug='challenge' AND category='challenge' AND name='Pick a challenge'""")
     conn.execute("CREATE INDEX IF NOT EXISTS shop_orders_user_item ON shop_orders(user, item_id, created_at)")
     conn.execute("""CREATE TABLE IF NOT EXISTS shop_titles (
         user TEXT NOT NULL, title TEXT NOT NULL COLLATE NOCASE, acquired_at TEXT NOT NULL, PRIMARY KEY(user,title))""")
@@ -42,12 +49,17 @@ def init_schema(conn):
         ("gold-glow", "Golden celebrations", "cosmetic", "Gold celebration styling for 30 minutes.", 750, "gold"),
     ]
     for item in defaults:
-        conn.execute("INSERT OR IGNORE INTO shop_items(slug,name,category,description,price,value) VALUES (?,?,?,?,?,?)", item)
+        conn.execute("INSERT OR IGNORE INTO shop_items(slug,name,category,description,price,value,requires_message) VALUES (?,?,?,?,?,?,?)",
+                     (*item, int(item[2] == "challenge")))
     store.upsert_config(conn, "shop_seeded", "1")
 
 
 def item_dict(row):
     return dict(row)
+
+
+def requires_message(item):
+    return item["category"] == "shoutout" or (item["category"] == "challenge" and bool(item.get("requires_message", 0)))
 
 
 def list_items(available_only=False):
@@ -87,15 +99,21 @@ def save_item(data):
         with store.db_session() as conn:
             if conn.execute("SELECT 1 FROM shop_items WHERE slug = ? AND id != ?", (slug, item_id)).fetchone():
                 raise ValueError("That shop code is already in use.")
-            fields = (slug, name, category, description, price, enabled, stock, cooldown, duration, value, gift)
+            previous = conn.execute("SELECT requires_message FROM shop_items WHERE id=?", (item_id,)).fetchone() if item_id else None
+            if "requires_message" in data:
+                message_flag = int(str(data["requires_message"]).lower() in {"1", "true", "on"})
+            else:
+                message_flag = previous["requires_message"] if previous else 0
+            message_flag = message_flag if category == "challenge" else 0
+            fields = (slug, name, category, description, price, enabled, stock, cooldown, duration, value, gift, message_flag)
             if item_id:
                 changed = conn.execute("""UPDATE shop_items SET slug=?,name=?,category=?,description=?,price=?,enabled=?,
-                    stock=?,cooldown=?,duration=?,value=?,gift_points=?,version=version+1 WHERE id=? AND version=?""", (*fields, item_id, version))
+                    stock=?,cooldown=?,duration=?,value=?,gift_points=?,requires_message=?,version=version+1 WHERE id=? AND version=?""", (*fields, item_id, version))
                 if not changed.rowcount:
                     raise ValueError("Item changed while you were editing. Refresh the shop and reopen it to avoid overwriting sales.")
             else:
-                conn.execute("""INSERT INTO shop_items(slug,name,category,description,price,enabled,stock,cooldown,duration,value,gift_points)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""", fields)
+                conn.execute("""INSERT INTO shop_items(slug,name,category,description,price,enabled,stock,cooldown,duration,value,gift_points,requires_message)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", fields)
         return True, "Shop item saved."
     except (ValueError, TypeError) as exc:
         return False, str(exc)
@@ -193,6 +211,7 @@ def buy(user_name, slug, message=""):
     if not re.fullmatch(r"[a-z0-9_]{1,25}", user) or user == "unknown":
         return False, "Enter a valid Twitch username."
     message = " ".join(str(message).split())
+    prefix = store.primary_prefix()
     starting = store.parse_non_negative_int(store.get_setting("starting_points", "100"), 100)
     now = store.utc_now()
     try:
@@ -203,8 +222,13 @@ def buy(user_name, slug, message=""):
             item = item_dict(row)
             if item["stock"] == 0:
                 raise ValueError("That item is sold out.")
-            if item["category"] in {"challenge", "shoutout"} and not 1 <= len(message) <= 140:
-                raise ValueError("Include your challenge or shout-out message (1–140 characters).")
+            if requires_message(item) and not 1 <= len(message) <= 140:
+                raise ValueError(f"This item needs your message (1–140 characters). Use {prefix}buy {item['slug']} <message>.")
+            if item["category"] == "challenge" and not requires_message(item):
+                if len(message) > 140:
+                    raise ValueError("Keep any extra challenge note to 140 characters or less.")
+                instructions = item["description"] or item["name"]
+                message = instructions + (f" · Viewer note: {message}" if message else "")
             if item["category"] == "title" and conn.execute("SELECT 1 FROM shop_titles WHERE user=? AND title=?", (user, item["value"])).fetchone():
                 raise ValueError("You already own that title. Use the title command to equip it.")
             last = conn.execute("SELECT created_at FROM shop_orders WHERE user=? AND item_id=? AND status != 'rejected' ORDER BY id DESC LIMIT 1", (user, item["id"])).fetchone()
@@ -300,7 +324,7 @@ def catalog_messages(query=""):
         category = item["category"]
         detail = f"{item['gift_points']:,} pts per other recent viewer" if category == "gift" else f"{item['value']} · {item['duration']} min" if category == "cosmetic" else f"Unlock: {item['value']}" if category == "title" else "Approval required · rejected requests refunded"
         stock = "SOLD OUT" if item["stock"] == 0 else f"{item['stock']} left" if item["stock"] > 0 else "Unlimited stock"
-        buy = f"Buy → {prefix}buy {item['slug']}" + (" <message>" if category in {"challenge", "shoutout"} else "")
+        buy = f"Buy → {prefix}buy {item['slug']}" + (" <message>" if requires_message(item) else "")
         return [chat.line("shop", f"{chat.REWARDS[category]} {chat.clip(item['name'], 60)} — {item['price']:,} pts",
                           chat.clip(item["description"], 105), chat.clip(detail, 65), f"{stock} · {item['cooldown']}s cooldown", buy)]
     if not available:

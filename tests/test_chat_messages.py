@@ -93,6 +93,19 @@ class ChatPresentationTests(unittest.TestCase):
         self.assertIn("!buy 2 <message>", shop.catalog_messages("2")[0])
         self.assertIn("2/", shop.catalog_messages("page 2")[0])
 
+    def test_preset_challenge_chat_purchase_and_detail_use_code_only(self):
+        self.assertTrue(shop.save_item({"slug": "meleeonly", "name": "Melee only", "category": "challenge",
+                                       "description": "Use melee weapons next round.", "price": 50})[0])
+        detail = shop.catalog_messages("meleeonly")[0]
+        self.assertIn("!buy meleeonly", detail)
+        self.assertNotIn("<message>", detail)
+        self.assertIn("<message>", shop.catalog_messages("challenge")[0])
+        ctx = SimpleNamespace(send=AsyncMock())
+        inline(self.command("buy")(None, ctx, "meleeonly"))
+        self.assertIn("PURCHASED", ctx.send.await_args.args[0])
+        self.assertEqual(store.get_points("viewer"), 50)
+        self.assertEqual(shop.snapshot()["pending"][0]["message"], "Use melee weapons next round.")
+
     def test_winner_messages_keep_all_25_mentions_and_bound_long_names(self):
         winners = [f"viewer{index:02d}" + "x" * 17 for index in range(25)]
         messages = chat.giveaway_results("🐮" * 200, winners)

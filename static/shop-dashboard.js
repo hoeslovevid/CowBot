@@ -13,10 +13,11 @@
     panel.querySelector('[data-shop-field="value"]').hidden = !['title','cosmetic'].includes(category);
     panel.querySelector('[data-shop-field="gift"]').hidden = category !== 'gift';
     panel.querySelector('[data-shop-field="duration"]').hidden = category !== 'cosmetic';
+    panel.querySelector('[data-shop-field="challenge-message"]').hidden = category !== 'challenge';
     document.getElementById('shop-value-label').textContent = category === 'cosmetic' ? 'Celebration color' : 'Title to unlock';
     field('value').required = ['title','cosmetic'].includes(category);
     const hints = {
-      challenge:'The buyer supplies a challenge (up to 140 characters). You approve, perform, and complete it. Reject a pending request to refund it.',
+      challenge:field('requires_message').checked ? 'The buyer must supply a challenge (up to 140 characters). You approve, perform, and complete it.' : 'A preset challenge: viewers buy using only its chat code. Use the description for instructions (or the item name if left blank). You approve, perform, and complete it.',
       shoutout:'The buyer supplies a message (up to 140 characters). Review the text before approving it for the on-screen overlay.',
       title:'Permanent unlock, automatically equipped on purchase. Viewers can switch between owned titles with the title command.',
       gift:'Awards this many points to each other viewer seen in the last 15 minutes. The buyer and known bots are excluded. No eligible viewers means no charge.',
@@ -70,7 +71,7 @@
   function render() {
     const stats = [[state.items.filter(i => i.enabled && i.stock !== 0).length,'Available items'],[state.pending.filter(o => o.status === 'pending').length,'Awaiting approval'],[state.pending.filter(o => o.status === 'approved').length,'Challenges to perform'],[state.profiles.length,'Viewer collections']];
     document.getElementById('shop-stats').innerHTML = stats.map(([n,label]) => `<div class="shop-stat"><strong>${n}</strong><span>${label}</span></div>`).join('');
-    document.getElementById('shop-items').innerHTML = state.items.map(item => `<article class="shop-row"><div class="shop-row-head"><h3>${esc(item.name)}</h3><span class="shop-pill">${item.enabled ? item.stock === 0 ? 'Sold out' : `${Number(item.price).toLocaleString()} pts` : 'Disabled'}</span></div><p>${esc(item.description)}</p><p class="shop-meta">${esc(labels[item.category])} · <code>${esc(prefix())}buy ${esc(item.slug)}</code><br>Stock: ${item.stock < 0 ? 'unlimited' : item.stock} · ${item.cooldown}s cooldown${item.category === 'gift' ? ` · ${item.gift_points} points per recipient` : ''}${item.category === 'cosmetic' ? ` · ${esc(item.value)}, ${item.duration} minutes` : ''}${item.category === 'title' ? ` · ${esc(item.value)}` : ''}</p><button class="ghost" data-edit-item="${item.id}">Edit item</button></article>`).join('') || '<p class="muted">Create your first shop item.</p>';
+    document.getElementById('shop-items').innerHTML = state.items.map(item => `<article class="shop-row"><div class="shop-row-head"><h3>${esc(item.name)}</h3><span class="shop-pill">${item.enabled ? item.stock === 0 ? 'Sold out' : `${Number(item.price).toLocaleString()} pts` : 'Disabled'}</span></div><p>${esc(item.description)}</p><p class="shop-meta">${esc(labels[item.category])} · <code>${esc(prefix())}buy ${esc(item.slug)}${item.category === 'shoutout' || (item.category === 'challenge' && item.requires_message) ? ' &lt;message&gt;' : ''}</code><br>Stock: ${item.stock < 0 ? 'unlimited' : item.stock} · ${item.cooldown}s cooldown${item.category === 'gift' ? ` · ${item.gift_points} points per recipient` : ''}${item.category === 'cosmetic' ? ` · ${esc(item.value)}, ${item.duration} minutes` : ''}${item.category === 'title' ? ` · ${esc(item.value)}` : ''}${item.category === 'challenge' ? item.requires_message ? ' · Viewer-supplied challenge' : ' · Preset challenge' : ''}</p><button class="ghost" data-edit-item="${item.id}">Edit item</button></article>`).join('') || '<p class="muted">Create your first shop item.</p>';
     document.getElementById('shop-pending').innerHTML = state.pending.map(order => orderHtml(order, true)).join('') || '<p class="muted">No requests waiting. Your herd is all caught up.</p>';
     document.getElementById('shop-history').innerHTML = state.orders.map(order => orderHtml(order)).join('') || '<p class="muted">No purchases found.</p>';
     document.getElementById('shop-page').textContent = state.total ? `${offset + 1}–${Math.min(offset+50,state.total)} of ${state.total}` : 'No purchases';
@@ -112,9 +113,11 @@
     event.preventDefault();
     const data = Object.fromEntries(new FormData(form));
     data.enabled = field('enabled').checked ? '1' : '0'; data.action = 'save';
+    data.requires_message = field('requires_message').checked ? '1' : '0';
     if (await act(data)) resetEditor();
   });
   field('category').addEventListener('change', categoryFields);
+  field('requires_message').addEventListener('change', categoryFields);
   document.getElementById('shop-new').addEventListener('click', () => { resetEditor(); field('name').focus(); document.getElementById('shop-editor-card').scrollIntoView({behavior:'smooth'}); });
   document.getElementById('shop-cancel-edit').addEventListener('click', resetEditor);
   document.getElementById('shop-refresh').addEventListener('click', refresh);

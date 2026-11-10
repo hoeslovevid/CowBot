@@ -71,6 +71,65 @@ class ShopTests(unittest.TestCase):
         self.assertEqual(shop.snapshot()["orders"][0]["status"], "completed")
         self.assertFalse(shop.review(order["id"], "approve")[0])
 
+    def test_new_preset_challenges_purchase_with_code_only(self):
+        app = create_api_app(get_status=lambda: {}, announce=AsyncMock())
+        route = next(r for r in app.router.routes() if r.resource.canonical == "/api/shop" and r.method == "POST")
+        for code, instructions in (("meleeonly", "Use melee weapons only next round."),
+                                   ("pistolonly", "Use pistols only next round.")):
+            data = {"action": "save", "id": "0", "version": "0", "slug": code,
+                    "name": code, "category": "challenge", "description": instructions,
+                    "price": "500", "stock": "1", "cooldown": "60", "enabled": "1"}
+            with patch.dict(os.environ, {"API_SECRET": ""}):
+                response = inline(route.handler(SimpleNamespace(headers={}, json=AsyncMock(return_value=data))))
+            self.assertEqual(response.status, 200)
+            ok, result = shop.buy("buyer", code)
+            self.assertTrue(ok, result)
+            order = shop.snapshot()["orders"][0]
+            self.assertEqual(order["message"], instructions)
+            self.assertEqual(order["status"], "pending")
+            self.assertEqual(self.item(code)["stock"], 0)
+            self.assertTrue(shop.review(order["id"], "approve")[0])
+            self.assertTrue(shop.review(order["id"], "complete")[0])
+        self.assertEqual(store.get_points("buyer"), 9000)
+
+    def test_fixed_challenge_preserves_instructions_with_optional_note(self):
+        self.assertTrue(shop.save_item({"slug": "meleeonly", "name": "Melee only", "category": "challenge", "price": 100})[0])
+        self.assertTrue(shop.buy("buyer", "meleeonly", "After this match please")[0])
+        self.assertEqual(shop.snapshot()["orders"][0]["message"], "Melee only · Viewer note: After this match please")
+        before = store.get_points("buyer")
+        self.assertFalse(shop.buy("buyer", "meleeonly", "x" * 141)[0])
+        self.assertEqual(store.get_points("buyer"), before)
+
+    def test_custom_message_setting_can_be_enabled_and_disabled(self):
+        self.assertTrue(shop.save_item({"slug": "custom", "name": "Your challenge", "category": "challenge",
+                                       "price": 100, "requires_message": "1"})[0])
+        ok, error = shop.buy("buyer", "custom")
+        self.assertFalse(ok)
+        self.assertIn("buy custom <message>", error)
+        self.assertEqual(store.get_points("buyer"), 10000)
+        self.assertTrue(shop.buy("buyer", "custom", "No healing")[0])
+        self.assertEqual(shop.snapshot()["orders"][0]["message"], "No healing")
+        self.edit("custom", requires_message="0", cooldown=0)
+        self.assertTrue(shop.buy("buyer", "custom")[0])
+        self.assertEqual(shop.snapshot()["orders"][0]["message"], "Your challenge")
+        self.assertFalse(shop.buy("buyer", "shoutout")[0])
+
+    def test_migration_fixes_existing_presets_without_changing_receipts_or_balances(self):
+        self.assertTrue(shop.save_item({"slug": "pistolonly", "name": "Pistol only", "category": "challenge", "price": 500})[0])
+        self.assertTrue(shop.buy("buyer", "challenge", "A pending custom request")[0])
+        receipts = shop.snapshot()["orders"]
+        balance = store.get_points("buyer")
+        with store.db_session() as conn:
+            conn.execute("ALTER TABLE shop_items DROP COLUMN requires_message")
+        store.init_db()
+        self.assertEqual(shop.snapshot()["orders"], receipts)
+        self.assertEqual(store.get_points("buyer"), balance)
+        self.assertEqual(self.item("challenge")["requires_message"], 1)
+        self.assertEqual(self.item("pistolonly")["requires_message"], 0)
+        self.assertTrue(shop.buy("buyer", "pistolonly")[0])
+        store.init_db()
+        self.assertEqual(self.item("pistolonly")["requires_message"], 0)
+
     def test_rejection_refunds_original_price_restores_stock_exactly_once(self):
         self.edit("challenge", stock=1)
         self.assertTrue(shop.buy("buyer", "challenge", "Try a challenge")[0])
